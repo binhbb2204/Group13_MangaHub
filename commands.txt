@@ -1,0 +1,178 @@
+1. BUILD COMMANDS
+Build API Server:
+    go build -o bin\api-server.exe .\cmd\api-server
+
+Build TCP Server (Phase 2):
+    go build -o bin\tcp-server.exe .\cmd\tcp-server
+
+Build UDP Server (Phase 2):
+    go build -o bin\udp-server.exe .\cmd\udp-server
+
+Build gRPC Server (Phase 2):
+    go build -o bin\grpc-server.exe .\cmd\grpc-server
+
+Build All Servers:
+    go build -o bin\api-server.exe .\cmd\api-server; go build -o bin\tcp-server.exe .\cmd\tcp-server; go build -o bin\udp-server.exe .\cmd\udp-server; go build -o bin\grpc-server.exe .\cmd\grpc-server
+
+
+2. START SERVER COMMANDS
+Start API Server (Primary - Phase 1):
+    .\bin\api-server.exe
+
+Start TCP Server (Phase 2):
+    .\bin\tcp-server.exe
+
+Start UDP Server (Phase 2):
+    .\bin\udp-server.exe
+
+Start gRPC Server (Phase 2):
+    .\bin\grpc-server.exe
+
+
+3. QUICK START (Build + Run)
+Quick Start API Server:
+    go build -o bin\api-server.exe .\cmd\api-server; .\bin\api-server.exe
+
+
+4. PORT CONFIGURATION
+API Server Port: 8081 (configured in .env file)
+    - Change in .env: API_PORT=8081
+
+Default ports if not in Phase 1:
+    - TCP Server: Check cmd\tcp-server\main.go
+    - UDP Server: Check cmd\udp-server\main.go
+    - gRPC Server: Check cmd\grpc-server\main.go
+
+
+5. CHECK IF SERVER IS RUNNING
+Check if API Server is running (port 8081):
+    netstat -ano | findstr :8081
+
+Check any specific port:
+    netstat -ano | findstr :PORT_NUMBER
+
+Health Check (API Server):
+    curl http://localhost:8081/health
+    OR open in browser: http://localhost:8081/health
+
+
+6. STOP SERVER
+If running in foreground:
+    Press Ctrl+C in the terminal
+
+If running in background:
+    1. Find process ID: netstat -ano | findstr :8081
+    2. Kill process: taskkill /PID <PID> /F
+
+
+7. DATABASE MANAGEMENT
+Database Location:
+    ./data/mangahub.db
+
+Backup Database:
+    Copy-Item ./data/mangahub.db ./data/mangahub.db.bak
+
+Restore Database:
+    Copy-Item ./data/mangahub.db.bak ./data/mangahub.db
+
+Reset Database (delete and recreate):
+    Remove-Item ./data/mangahub.db; .\bin\api-server.exe
+
+
+8. ENVIRONMENT CONFIGURATION
+Edit Environment Variables:
+    notepad .env
+
+Important Environment Variables:
+    - API_PORT=8081              # API server port
+    - DB_PATH=./data/mangahub.db # Database file path
+    - JWT_SECRET=your-super-secret-jwt # JWT secret key
+    - MANGA_SOURCE=mangadex      # Manga source (jikan|mangadex|rapidapi)
+
+
+9. API TESTING COMMANDS (PowerShell)
+Test Health Endpoint:
+    Invoke-RestMethod -Uri http://localhost:8081/health -Method Get
+
+Register User:
+    $body = @{ username = "testuser1"; email = "testuser1@gmail.com"; password = "SecurePass123!" } | ConvertTo-Json
+    Invoke-RestMethod -Uri http://localhost:8081/auth/register -Method Post -ContentType 'application/json' -Body $body
+
+Login:
+    $body = @{ username = "testuser1"; password = "SecurePass123!" } | ConvertTo-Json
+    $resp = Invoke-RestMethod -Uri http://localhost:8081/auth/login -Method Post -ContentType 'application/json' -Body $body
+    $token = $resp.token
+
+Search Manga:
+    Invoke-RestMethod -Uri "http://localhost:8081/manga?title=naruto" -Method Get
+
+Get All Manga:
+    Invoke-RestMethod -Uri http://localhost:8081/manga/all -Method Get
+
+
+10. TROUBLESHOOTING
+Problem: "Error: connect ECONNREFUSED"
+Solution: Server is not running. Start it with: .\bin\api-server.exe
+
+Problem: "port already in use"
+Solution: 
+    1. Find process: netstat -ano | findstr :8081
+    2. Kill it: taskkill /PID <PID> /F
+    3. Restart server
+
+Problem: Database errors
+Solution: 
+    1. Check DB_PATH in .env
+    2. Ensure ./data directory exists
+    3. Check database file permissions
+
+Problem: "Failed to initialize database"
+Solution: 
+    1. Rebuild the server: go build -o bin\api-server.exe .\cmd\api-server
+    2. Delete old database if corrupted
+    3. Restart server to recreate tables
+
+
+11. DEVELOPMENT WORKFLOW
+Typical Development Cycle:
+    1. Make code changes
+    2. Rebuild: go build -o bin\api-server.exe .\cmd\api-server
+    3. Stop old server (Ctrl+C)
+    4. Start new server: .\bin\api-server.exe
+    5. Test with API client (REST Client, Postman, etc.)
+
+Hot Reload (using Air - optional):
+    1. Install: go install github.com/air-verse/air@latest
+    2. Run: air
+
+
+12. USEFUL GO COMMANDS
+Install Dependencies:
+    go mod download
+
+Update Dependencies:
+    go mod tidy
+
+Check for Updates:
+    go list -m -u all
+
+Run Tests (if any):
+    go test ./...
+
+Format Code:
+    go fmt ./...
+
+
+NOTES:
+- For Phase 1, only the API Server (HTTP REST) is needed
+- TCP, UDP, and gRPC servers are for Phase 2
+- Make sure to set environment variables in .env file
+- Default port is 8081 (can be changed in .env)
+- Database is SQLite, stored in ./data/mangahub.db
+- JWT secret should be changed in production
+
+
+
+---
+Last Updated: November 6, 2025
+

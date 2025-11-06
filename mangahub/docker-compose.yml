@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  api-server:
+    build:
+      context: ./cmd/api-server
+    ports:
+      - "8080:8080"
+    command: [ "go", "run", "main.go" ]
+    volumes:
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      - ./data:/app/data
+  tcp-server:
+    build:
+      context: ./cmd/tcp-server
+    ports:
+      - "9090:9090"
+    command: [ "go", "run", "main.go" ]
+    volumes:
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      - ./data:/app/data
+  udp-server:
+    build:
+      context: ./cmd/udp-server
+    ports:
+      - "7070:7070/udp"
+    command: [ "go", "run", "main.go" ]
+    volumes:
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      - ./data:/app/data
+  grpc-server:
+    build:
+      context: ./cmd/grpc-server
+    ports:
+      - "50051:50051"
+    command: [ "go", "run", "main.go" ]
+    volumes:
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      - ./data:/app/data
