@@ -96,6 +96,7 @@ func main() {
 	userGroup := router.Group("/users")
 	userGroup.Use(auth.AuthMiddleware(jwtSecret))
 	{
+		userGroup.GET("/me", userHandler.GetProfile)                          // Get current user profile
 		userGroup.POST("/library", userHandler.AddToLibrary)                  // Add manga to library
 		userGroup.GET("/library", userHandler.GetLibrary)                     // Get user's library
 		userGroup.PUT("/progress", userHandler.UpdateProgress)                // Update reading progress
