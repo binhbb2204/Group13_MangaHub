@@ -24,12 +24,14 @@ type ExternalSource interface {
 
 type MangaDexSource struct {
 	BaseURL string
+	Token   string // Optional OAuth token
 	Client  *http.Client
 }
 
 func NewMangaDexSource() *MangaDexSource {
 	return &MangaDexSource{
 		BaseURL: "https://api.mangadex.org",
+		Token:   strings.TrimSpace(os.Getenv("MANGADEX_TOKEN")),
 		Client:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -84,6 +86,9 @@ func (mgs *MangaDexSource) Search(ctx context.Context, q string, limit, offset i
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	req.Header.Set("User-Agent", "MangaHub/1.0 (+github.com/binhbb2204/Manga-Hub-Group13)")
+	if mgs.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+mgs.Token)
+	}
 
 	resp, err := mgs.Client.Do(req)
 	if err != nil {

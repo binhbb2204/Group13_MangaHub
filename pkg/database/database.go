@@ -4,15 +4,16 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 
-	_ "github.com/glebarez/go-sqlite"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var DB *sql.DB
 
 func InitDatabase(dbPath string) error {
 	var err error
-	DB, err = sql.Open("sqlite", dbPath)
+	DB, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -35,6 +36,7 @@ func createTables() error {
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE,
         password_hash TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -67,7 +69,42 @@ func createTables() error {
     `
 
 	_, err := DB.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	// Backfill: ensure email column exists for existing DBs
+	if err := ensureUserEmailColumn(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureUserEmailColumn() error {
+	rows, err := DB.Query(`PRAGMA table_info(users);`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	hasEmail := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, "email") {
+			hasEmail = true
+			break
+		}
+	}
+	if !hasEmail {
+		if _, err := DB.Exec(`ALTER TABLE users ADD COLUMN email TEXT UNIQUE;`); err != nil {
+			log.Printf("Warning: adding email column failed: %v", err)
+		}
+	}
+	return nil
 }
 
 func Close() error {
