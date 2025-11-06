@@ -8,6 +8,7 @@ import (
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/user"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -34,6 +35,13 @@ func main() {
 		log.Println("Warning: Using default JWT secret. Set JWT_SECRET environment variable in production!")
 	}
 
+	//frontend URL from environment or use default
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+		log.Println("Using default frontend URL: http://localhost:3000")
+	}
+
 	// Initialize handlers
 	authHandler := auth.NewHandler(jwtSecret)
 	mangaHandler := manga.NewHandler()
@@ -41,6 +49,15 @@ func main() {
 
 	// Setup Gin router
 	router := gin.Default()
+
+	// CORS middleware configuration
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{frontendURL}
+	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
+	config.ExposeHeaders = []string{"Content-Length"}
+	config.AllowCredentials = true
+	router.Use(cors.New(config))
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
