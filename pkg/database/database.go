@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -12,6 +14,14 @@ import (
 var DB *sql.DB
 
 func InitDatabase(dbPath string) error {
+	// Ensure parent directory exists so sqlite can create the .db file
+	dir := filepath.Dir(dbPath)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("failed to create database directory %s: %w", dir, err)
+		}
+	}
+
 	var err error
 	DB, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -22,6 +32,11 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 	log.Println("Database connection established")
+
+	// Enable foreign key support for SQLite (useful for cascading deletes, etc.)
+	if _, err := DB.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+		log.Printf("Warning: failed to enable foreign keys: %v", err)
+	}
 
 	if err = createTables(); err != nil {
 		return fmt.Errorf("failed to create tables: %w", err)
