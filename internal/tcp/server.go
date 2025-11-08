@@ -3,22 +3,20 @@ package tcp
 import (
 	"log"
 	"net"
-	"sync"
 )
 
 type Server struct {
-	Port     string
-	listener net.Listener
-	clients  map[string]net.Conn
-	mu       sync.RWMutex
-	running  bool
+	Port          string
+	listener      net.Listener
+	running       bool
+	clientManager *ClientManager
 }
 
 func NewServer(port string) *Server {
 	return &Server{
-		Port:    port,
-		clients: make(map[string]net.Conn),
-		running: false,
+		Port:          port,
+		running:       false,
+		clientManager: NewClientManager(),
 	}
 }
 
@@ -43,19 +41,19 @@ func (s *Server) acceptConnections() {
 			}
 			continue
 		}
-		log.Printf("New connection from %s", conn.RemoteAddr())
-		go s.handleClient(conn)
+		clientID := conn.RemoteAddr().String()
+		client := &Client{Conn: conn, ID: clientID}
+		s.clientManager.Add(client)
+		go HandleConnection(client, s.clientManager, s.removeClient)
 	}
 }
 
 func (s *Server) Stop() error {
 	s.running = false
-	s.mu.Lock()
-	for userID, conn := range s.clients {
-		conn.Close()
-		delete(s.clients, userID)
+	for _, client := range s.clientManager.List() {
+		client.Conn.Close()
+		s.clientManager.Remove(client.ID)
 	}
-	s.mu.Unlock()
 	if s.listener != nil {
 		return s.listener.Close()
 	}
@@ -63,40 +61,10 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func (s *Server) addClient(userID string, conn net.Conn) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.clients[userID] = conn
-	log.Printf("Client %s connected (total: %d)", userID, len(s.clients))
-}
-
 func (s *Server) removeClient(userID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if conn, exists := s.clients[userID]; exists {
-		if conn != nil {
-			conn.Close()
-		}
-		delete(s.clients, userID)
-		log.Printf("Client %s disconnected (total: %d)", userID, len(s.clients))
-	}
+	s.clientManager.Remove(userID)
 }
 
 func (s *Server) GetClientCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.clients)
-}
-
-func (s *Server) handleClient(conn net.Conn) {
-	defer conn.Close()
-	log.Printf("Handling connection from %s", conn.RemoteAddr())
-	buf := make([]byte, 1024)
-	for {
-		_, err := conn.Read(buf)
-		if err != nil {
-			log.Printf("Connection closed: %v", err)
-			return
-		}
-	}
+	return len(s.clientManager.List())
 }
