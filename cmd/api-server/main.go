@@ -1,13 +1,13 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/auth"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/user"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -17,6 +17,17 @@ func main() {
 	// Load environment variables from .env if present (optional)
 	_ = godotenv.Load()
 
+	// Initialize logger
+	logLevel := logger.INFO
+	if level := os.Getenv("LOG_LEVEL"); level != "" {
+		logLevel = logger.LogLevel(level)
+	}
+	jsonFormat := os.Getenv("LOG_FORMAT") == "json"
+	logger.Init(logLevel, jsonFormat, os.Stdout)
+
+	log := logger.GetLogger().WithContext("component", "api_server")
+	log.Info("starting_api_server", "version", "1.0.0")
+
 	// Initialize database
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
@@ -24,7 +35,8 @@ func main() {
 	}
 
 	if err := database.InitDatabase(dbPath); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		log.Error("failed_to_initialize_database", "error", err.Error(), "path", dbPath)
+		os.Exit(1)
 	}
 	defer database.Close()
 
@@ -32,14 +44,14 @@ func main() {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
-		log.Println("Warning: Using default JWT secret. Set JWT_SECRET environment variable in production!")
+		log.Warn("using_default_jwt_secret", "message", "Set JWT_SECRET environment variable in production!")
 	}
 
 	//frontend URL from environment or use default
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
 		frontendURL = "http://localhost:3000"
-		log.Println("Using default frontend URL: http://localhost:3000")
+		log.Info("using_default_frontend_url", "url", frontendURL)
 	}
 
 	// Initialize handlers
@@ -109,8 +121,9 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Starting API server on port %s...\n", port)
+	log.Info("starting_api_server", "port", port)
 	if err := router.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		log.Error("failed_to_start_api_server", "error", err.Error())
+		os.Exit(1)
 	}
 }

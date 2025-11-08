@@ -3,28 +3,34 @@ package tcp
 import (
 	"bufio"
 	"encoding/json"
-	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 )
 
 func HandleConnection(client *Client, manager *ClientManager, removeClient func(string)) {
+	log := logger.WithFields(map[string]interface{}{
+		"client_id": client.ID,
+		"component": "tcp_handler",
+	})
+
 	defer func() {
-		log.Printf("Client disconnected: %s", client.ID)
+		log.Info("client_disconnected")
 		removeClient(client.ID)
 		client.Conn.Close()
 	}()
 
-	log.Printf("Client connected: %s", client.ID)
+	log.Info("client_connected")
 	reader := bufio.NewReader(client.Conn)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("Error reading from %s: %v", client.ID, err)
+			netErr := NewNetworkReadError(err)
+			log.Error("connection_read_error", "error", netErr.Error())
 			return
 		}
 
@@ -35,55 +41,67 @@ func HandleConnection(client *Client, manager *ClientManager, removeClient func(
 
 		msg, err := ParseMessage([]byte(line))
 		if err != nil {
-			log.Printf("Error parsing message from %s: %v", client.ID, err)
-			client.Conn.Write(CreateErrorMessage("Invalid message format"))
+			protoErr := NewProtocolInvalidFormatError(err)
+			log.Warn("message_parse_error", "error", protoErr.Error(), "raw_message", line)
+			SendError(client, protoErr)
 			continue
 		}
 
-		if err := routeMessage(client, msg); err != nil {
-			log.Printf("Error handling message from %s: %v", client.ID, err)
-			client.Conn.Write(CreateErrorMessage(err.Error()))
+		if err := routeMessage(client, msg, log); err != nil {
+			log.Error("message_handling_error",
+				"error", err.Error(),
+				"message_type", msg.Type)
+			SendError(client, err)
 		}
 	}
 }
 
-func routeMessage(client *Client, msg *Message) error {
+func routeMessage(client *Client, msg *Message, log *logger.Logger) error {
+	log = log.WithContext("message_type", msg.Type)
+
 	switch msg.Type {
 	case "ping":
-		return handlePing(client)
+		return handlePing(client, log)
 	case "auth":
-		return handleAuth(client, msg.Payload)
+		return handleAuth(client, msg.Payload, log)
 	case "sync_progress":
-		return handleSyncProgress(client, msg.Payload)
+		return handleSyncProgress(client, msg.Payload, log)
 	case "get_library":
-		return handleGetLibrary(client, msg.Payload)
+		return handleGetLibrary(client, msg.Payload, log)
 	case "get_progress":
-		return handleGetProgress(client, msg.Payload)
+		return handleGetProgress(client, msg.Payload, log)
 	case "add_to_library":
-		return handleAddToLibrary(client, msg.Payload)
+		return handleAddToLibrary(client, msg.Payload, log)
 	case "remove_from_library":
-		return handleRemoveFromLibrary(client, msg.Payload)
+		return handleRemoveFromLibrary(client, msg.Payload, log)
 	default:
-		client.Conn.Write(CreateErrorMessage("Unknown message type: " + msg.Type))
+		err := NewProtocolUnknownTypeError(msg.Type)
+		SendError(client, err)
 		return nil
 	}
 }
 
-func handlePing(client *Client) error {
+func handlePing(client *Client, log *logger.Logger) error {
+	log.Debug("ping_received")
 	_, err := client.Conn.Write(CreatePongMessage())
-	return err
+	if err != nil {
+		return NewNetworkWriteError(err)
+	}
+	return nil
 }
 
-func handleAuth(client *Client, payload json.RawMessage) error {
+func handleAuth(client *Client, payload json.RawMessage, log *logger.Logger) error {
 	var authPayload AuthPayload
 	if err := json.Unmarshal(payload, &authPayload); err != nil {
-		client.Conn.Write(CreateErrorMessage("Invalid auth payload"))
-		return err
+		protoErr := NewProtocolInvalidPayloadError("Invalid auth payload")
+		SendError(client, protoErr)
+		return protoErr
 	}
 
 	if authPayload.Token == "" {
-		client.Conn.Write(CreateErrorMessage("Token is required"))
-		return nil
+		authErr := NewAuthTokenMissingError()
+		SendError(client, authErr)
+		return authErr
 	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -93,34 +111,49 @@ func handleAuth(client *Client, payload json.RawMessage) error {
 
 	claims, err := utils.ValidateJWT(authPayload.Token, jwtSecret)
 	if err != nil {
-		client.Conn.Write(CreateErrorMessage("Invalid or expired token"))
-		return nil
+		authErr := NewAuthTokenInvalidError()
+		log.Warn("authentication_failed", "error", err.Error())
+		SendError(client, authErr)
+		return authErr
 	}
 
 	client.UserID = claims.UserID
 	client.Username = claims.Username
 	client.Authenticated = true
 
-	log.Printf("Client %s authenticated as user %s (%s)", client.ID, client.Username, client.UserID)
+	log.Info("client_authenticated",
+		"user_id", client.UserID,
+		"username", client.Username)
 	client.Conn.Write(CreateSuccessMessage("Authentication successful"))
 	return nil
 }
 
-func handleSyncProgress(client *Client, payload json.RawMessage) error {
+func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Logger) error {
 	if !client.Authenticated {
-		client.Conn.Write(CreateErrorMessage("Authentication required"))
-		return nil
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
 	}
+
+	log = log.WithFields(map[string]interface{}{
+		"user_id":  client.UserID,
+		"username": client.Username,
+	})
 
 	var syncPayload SyncProgressPayload
 	if err := json.Unmarshal(payload, &syncPayload); err != nil {
-		client.Conn.Write(CreateErrorMessage("Invalid sync_progress payload"))
-		return err
+		protoErr := NewProtocolInvalidPayloadError("Invalid sync_progress payload")
+		SendError(client, protoErr)
+		return protoErr
 	}
 
 	if syncPayload.MangaID == "" || syncPayload.CurrentChapter < 0 {
-		client.Conn.Write(CreateErrorMessage("Invalid manga_id or current_chapter"))
-		return nil
+		bizErr := NewBizInvalidMangaIDError()
+		if syncPayload.CurrentChapter < 0 {
+			bizErr = NewBizInvalidChapterError(syncPayload.CurrentChapter)
+		}
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	validStatuses := map[string]bool{
@@ -129,21 +162,24 @@ func handleSyncProgress(client *Client, payload json.RawMessage) error {
 		"plan_to_read": true,
 	}
 	if syncPayload.Status != "" && !validStatuses[syncPayload.Status] {
-		client.Conn.Write(CreateErrorMessage("Invalid status. Must be: reading, completed, or plan_to_read"))
-		return nil
+		bizErr := NewBizInvalidStatusError(syncPayload.Status)
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	var exists bool
 	checkQuery := `SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)`
 	err := database.DB.QueryRow(checkQuery, syncPayload.MangaID).Scan(&exists)
 	if err != nil {
-		log.Printf("Database error checking manga existence: %v", err)
-		client.Conn.Write(CreateErrorMessage("Database error"))
-		return err
+		dbErr := NewDatabaseQueryError(err)
+		log.Error("database_error_checking_manga", "error", err.Error(), "manga_id", syncPayload.MangaID)
+		SendError(client, dbErr)
+		return dbErr
 	}
 	if !exists {
-		client.Conn.Write(CreateErrorMessage("Manga not found"))
-		return nil
+		bizErr := NewBizMangaNotFoundError(syncPayload.MangaID)
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	now := time.Now()
@@ -164,23 +200,32 @@ func handleSyncProgress(client *Client, payload json.RawMessage) error {
 		syncPayload.CurrentChapter, syncPayload.Status, now)
 
 	if err != nil {
-		log.Printf("Database error syncing progress: %v", err)
-		client.Conn.Write(CreateErrorMessage("Failed to sync progress"))
-		return err
+		dbErr := NewDatabaseQueryError(err)
+		log.Error("database_error_syncing_progress", "error", err.Error())
+		SendError(client, dbErr)
+		return dbErr
 	}
 
-	log.Printf("Progress synced for user %s: MangaID=%s, Chapter=%d, Status=%s",
-		client.Username, syncPayload.MangaID, syncPayload.CurrentChapter, status)
+	log.Info("progress_synced",
+		"manga_id", syncPayload.MangaID,
+		"chapter", syncPayload.CurrentChapter,
+		"status", status)
 
 	client.Conn.Write(CreateSuccessMessage("Progress synced successfully"))
 	return nil
 }
 
-func handleGetLibrary(client *Client, payload json.RawMessage) error {
+func handleGetLibrary(client *Client, payload json.RawMessage, log *logger.Logger) error {
 	if !client.Authenticated {
-		client.Conn.Write(CreateErrorMessage("Authentication required"))
-		return nil
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
 	}
+
+	log = log.WithFields(map[string]interface{}{
+		"user_id":  client.UserID,
+		"username": client.Username,
+	})
 
 	query := `
         SELECT m.id, m.title, m.author, m.genres, m.status, m.total_chapters, m.description, m.cover_url,
@@ -193,9 +238,10 @@ func handleGetLibrary(client *Client, payload json.RawMessage) error {
 
 	rows, err := database.DB.Query(query, client.UserID)
 	if err != nil {
-		log.Printf("Database error fetching library: %v", err)
-		client.Conn.Write(CreateErrorMessage("Database error"))
-		return err
+		dbErr := NewDatabaseQueryError(err)
+		log.Error("database_error_fetching_library", "error", err.Error())
+		SendError(client, dbErr)
+		return dbErr
 	}
 	defer rows.Close()
 
@@ -233,7 +279,7 @@ func handleGetLibrary(client *Client, payload json.RawMessage) error {
 			&mp.UpdatedAt,
 		)
 		if err != nil {
-			log.Printf("Error scanning library row: %v", err)
+			log.Warn("error_scanning_library_row", "error", err.Error())
 			continue
 		}
 		if genres != nil {
@@ -248,26 +294,36 @@ func handleGetLibrary(client *Client, payload json.RawMessage) error {
 		library = append(library, mp)
 	}
 
-	log.Printf("Fetched library for user %s: %d items (scanned %d rows)", client.Username, len(library), rowCount)
+	log.Info("library_fetched",
+		"item_count", len(library),
+		"rows_scanned", rowCount)
 	client.Conn.Write(CreateDataMessage("library", library))
 	return nil
 }
 
-func handleGetProgress(client *Client, payload json.RawMessage) error {
+func handleGetProgress(client *Client, payload json.RawMessage, log *logger.Logger) error {
 	if !client.Authenticated {
-		client.Conn.Write(CreateErrorMessage("Authentication required"))
-		return nil
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
 	}
+
+	log = log.WithFields(map[string]interface{}{
+		"user_id":  client.UserID,
+		"username": client.Username,
+	})
 
 	var req GetProgressPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
-		client.Conn.Write(CreateErrorMessage("Invalid get_progress payload"))
-		return err
+		protoErr := NewProtocolInvalidPayloadError("Invalid get_progress payload")
+		SendError(client, protoErr)
+		return protoErr
 	}
 
 	if req.MangaID == "" {
-		client.Conn.Write(CreateErrorMessage("manga_id is required"))
-		return nil
+		bizErr := NewBizInvalidMangaIDError()
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	var progress struct {
@@ -279,29 +335,40 @@ func handleGetProgress(client *Client, payload json.RawMessage) error {
 	query := `SELECT current_chapter, status, updated_at FROM user_progress WHERE user_id = ? AND manga_id = ?`
 	err := database.DB.QueryRow(query, client.UserID, req.MangaID).Scan(&progress.CurrentChapter, &progress.Status, &progress.UpdatedAt)
 	if err != nil {
-		client.Conn.Write(CreateErrorMessage("Progress not found"))
-		return nil
+		dbErr := NewDatabaseNotFoundError()
+		log.Info("progress_not_found", "manga_id", req.MangaID)
+		SendError(client, dbErr)
+		return dbErr
 	}
 
+	log.Debug("progress_retrieved", "manga_id", req.MangaID)
 	client.Conn.Write(CreateDataMessage("progress", progress))
 	return nil
 }
 
-func handleAddToLibrary(client *Client, payload json.RawMessage) error {
+func handleAddToLibrary(client *Client, payload json.RawMessage, log *logger.Logger) error {
 	if !client.Authenticated {
-		client.Conn.Write(CreateErrorMessage("Authentication required"))
-		return nil
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
 	}
+
+	log = log.WithFields(map[string]interface{}{
+		"user_id":  client.UserID,
+		"username": client.Username,
+	})
 
 	var req AddToLibraryPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
-		client.Conn.Write(CreateErrorMessage("Invalid add_to_library payload"))
-		return err
+		protoErr := NewProtocolInvalidPayloadError("Invalid add_to_library payload")
+		SendError(client, protoErr)
+		return protoErr
 	}
 
 	if req.MangaID == "" {
-		client.Conn.Write(CreateErrorMessage("manga_id is required"))
-		return nil
+		bizErr := NewBizInvalidMangaIDError()
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	validStatuses := map[string]bool{
@@ -314,16 +381,18 @@ func handleAddToLibrary(client *Client, payload json.RawMessage) error {
 		status = "plan_to_read"
 	}
 	if !validStatuses[status] {
-		client.Conn.Write(CreateErrorMessage("Invalid status. Must be: reading, completed, or plan_to_read"))
-		return nil
+		bizErr := NewBizInvalidStatusError(status)
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	var exists bool
 	checkQuery := `SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)`
 	err := database.DB.QueryRow(checkQuery, req.MangaID).Scan(&exists)
 	if err != nil || !exists {
-		client.Conn.Write(CreateErrorMessage("Manga not found"))
-		return nil
+		bizErr := NewBizMangaNotFoundError(req.MangaID)
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	now := time.Now()
@@ -333,48 +402,59 @@ func handleAddToLibrary(client *Client, payload json.RawMessage) error {
 
 	_, err = database.DB.Exec(query, client.UserID, req.MangaID, status, now, status, now)
 	if err != nil {
-		log.Printf("Database error adding to library: %v", err)
-		client.Conn.Write(CreateErrorMessage("Failed to add manga to library"))
-		return err
+		dbErr := NewDatabaseQueryError(err)
+		log.Error("database_error_adding_to_library", "error", err.Error(), "manga_id", req.MangaID)
+		SendError(client, dbErr)
+		return dbErr
 	}
 
-	log.Printf("User %s added manga %s to library with status %s", client.Username, req.MangaID, status)
+	log.Info("manga_added_to_library", "manga_id", req.MangaID, "status", status)
 	client.Conn.Write(CreateSuccessMessage("Manga added to library successfully"))
 	return nil
 }
 
-func handleRemoveFromLibrary(client *Client, payload json.RawMessage) error {
+func handleRemoveFromLibrary(client *Client, payload json.RawMessage, log *logger.Logger) error {
 	if !client.Authenticated {
-		client.Conn.Write(CreateErrorMessage("Authentication required"))
-		return nil
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
 	}
+
+	log = log.WithFields(map[string]interface{}{
+		"user_id":  client.UserID,
+		"username": client.Username,
+	})
 
 	var req RemoveFromLibraryPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
-		client.Conn.Write(CreateErrorMessage("Invalid remove_from_library payload"))
-		return err
+		protoErr := NewProtocolInvalidPayloadError("Invalid remove_from_library payload")
+		SendError(client, protoErr)
+		return protoErr
 	}
 
 	if req.MangaID == "" {
-		client.Conn.Write(CreateErrorMessage("manga_id is required"))
-		return nil
+		bizErr := NewBizInvalidMangaIDError()
+		SendError(client, bizErr)
+		return bizErr
 	}
 
 	query := `DELETE FROM user_progress WHERE user_id = ? AND manga_id = ?`
 	result, err := database.DB.Exec(query, client.UserID, req.MangaID)
 	if err != nil {
-		log.Printf("Database error removing from library: %v", err)
-		client.Conn.Write(CreateErrorMessage("Failed to remove manga from library"))
-		return err
+		dbErr := NewDatabaseQueryError(err)
+		log.Error("database_error_removing_from_library", "error", err.Error(), "manga_id", req.MangaID)
+		SendError(client, dbErr)
+		return dbErr
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		client.Conn.Write(CreateErrorMessage("Manga not in library"))
-		return nil
+		bizErr := NewBizNotInLibraryError(req.MangaID)
+		SendError(client, bizErr)
+		return bizErr
 	}
 
-	log.Printf("User %s removed manga %s from library", client.Username, req.MangaID)
+	log.Info("manga_removed_from_library", "manga_id", req.MangaID)
 	client.Conn.Write(CreateSuccessMessage("Manga removed from library successfully"))
 	return nil
 }
