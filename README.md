@@ -125,7 +125,7 @@ mangahub library list
 mangahub progress update --manga-id 13 --chapter 1095
 ```
 
-## Testing with Postman or Building a Frontend?
+## Testing with Postman for Frontend
 
 Good news! The API is ready to go. Just remember the port you set in `.env` (default is 8080).
 
