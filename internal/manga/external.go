@@ -3,299 +3,261 @@ package manga
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/models"
 )
 
-// ExternalSource abstracts a manga provider (e.g., Jikan, MangaDex, RapidAPI wrappers)
+
 type ExternalSource interface {
 	Search(ctx context.Context, query string, limit, offset int) ([]models.Manga, error)
+	GetMangaByID(ctx context.Context, id string) (*models.Manga, error)
 }
 
-// ========== MangaDex (official, no key needed for public search) ==========
+type MALSource struct{
+    BaseURL  string
+    ClientID string
+    Client   *http.Client
+}
 
 type MangaDexSource struct {
 	BaseURL string
-	Token   string // Optional OAuth token
+	Token   string 
 	Client  *http.Client
 }
 
-func NewMangaDexSource() *MangaDexSource {
-	return &MangaDexSource{
-		BaseURL: "https://api.mangadex.org",
-		Token:   strings.TrimSpace(os.Getenv("MANGADEX_TOKEN")),
-		Client:  &http.Client{Timeout: 10 * time.Second},
+func NewMALSource() *MALSource{
+	return &MALSource{
+		BaseURL:  "https://api.myanimelist.net/v2",
+        ClientID: strings.TrimSpace(os.Getenv("MAL_CLIENT_ID")),
+        Client:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-type mangadexSearchResp struct {
-	Data []struct {
-		ID         string `json:"id"`
-		Attributes struct {
-			Title       map[string]string `json:"title"`
-			Description map[string]string `json:"description"`
-			Status      string            `json:"status"`
-			LastChapter string            `json:"lastChapter"`
-			Tags        []struct {
-				Attributes struct {
-					Name map[string]string `json:"name"`
-				} `json:"attributes"`
-			} `json:"tags"`
-		} `json:"attributes"`
-	} `json:"data"`
+type malSearchRes struct{
+    Data []struct {
+        Node struct {
+            ID              int    `json:"id"`
+            Title           string `json:"title"`
+            MainPicture     *struct {
+                Medium string `json:"medium"`
+                Large  string `json:"large"`
+            } `json:"main_picture"`
+            AlternativeTitles *struct {
+                Synonyms []string `json:"synonyms"`
+                En       string   `json:"en"`
+                Ja       string   `json:"ja"`
+            } `json:"alternative_titles"`
+            Synopsis      string `json:"synopsis"`
+            NumChapters   int    `json:"num_chapters"`
+            Status        string `json:"status"`
+            Genres        []struct {
+                ID   int    `json:"id"`
+                Name string `json:"name"`
+            } `json:"genres"`
+            Authors []struct {
+                Node struct {
+                    ID        int    `json:"id"`
+                    FirstName string `json:"first_name"`
+                    LastName  string `json:"last_name"`
+                } `json:"node"`
+                Role string `json:"role"`
+            } `json:"authors"`
+        } `json:"node"`
+    } `json:"data"`
+    Paging *struct {
+        Next string `json:"next"`
+    } `json:"paging"`
 }
 
-func firstLocalized(m map[string]string) string {
-	if m == nil {
-		return ""
-	}
-	if v, ok := m["en"]; ok && v != "" {
-		return v
-	}
-	for _, v := range m {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
+type malMangaDetailRes struct{
+    ID              int    `json:"id"`
+    Title           string `json:"title"`
+    MainPicture     *struct {
+        Medium string `json:"medium"`
+        Large  string `json:"large"`
+    } `json:"main_picture"`
+    AlternativeTitles *struct {
+        Synonyms []string `json:"synonyms"`
+        En       string   `json:"en"`
+        Ja       string   `json:"ja"`
+    } `json:"alternative_titles"`
+    Synopsis    string `json:"synopsis"`
+    NumChapters int    `json:"num_chapters"`
+    Status      string `json:"status"`
+    Genres      []struct {
+        ID   int    `json:"id"`
+        Name string `json:"name"`
+    } `json:"genres"`
+    Authors []struct {
+        Node struct {
+            ID        int    `json:"id"`
+            FirstName string `json:"first_name"`
+            LastName  string `json:"last_name"`
+        } `json:"node"`
+        Role string `json:"role"`
+    } `json:"authors"`
 }
 
-func (mgs *MangaDexSource) Search(ctx context.Context, q string, limit, offset int) ([]models.Manga, error) {
-	if limit <= 0 {
+func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]models.Manga, error){
+	if m.ClientID == ""{
+		return nil, fmt.Errorf("MAL_CLIENT_ID not set in environment")
+	}
+
+	if limit <= 0{
 		limit = 20
 	}
-	u, _ := url.Parse(mgs.BaseURL + "/manga")
+
+	u, _ := url.Parse(m.BaseURL + "/manga")
 	qs := u.Query()
-	if q != "" {
-		qs.Set("title", q)
+	if q != ""{
+		qs.Set("q", q)
 	}
 	qs.Set("limit", fmt.Sprintf("%d", limit))
-	if offset > 0 {
+	if offset > 0{
 		qs.Set("offset", fmt.Sprintf("%d", offset))
 	}
-	qs.Add("contentRating[]", "safe")
+	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	req.Header.Set("User-Agent", "MangaHub/1.0 (+github.com/binhbb2204/Manga-Hub-Group13)")
-	if mgs.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+mgs.Token)
-	}
-
-	resp, err := mgs.Client.Do(req)
-	if err != nil {
+    req.Header.Set("X-MAL-Client-ID", m.ClientID)
+    req.Header.Set("User-Agent", "MangaHub/1.0 (+github.com/binhbb2204/Manga-Hub-Group13)")
+	res, err := m.Client.Do(req)
+	if err != nil{
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("mangadex search failed: %s", resp.Status)
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK{
+		return nil, fmt.Errorf("MAL API request failed: %s", res.Status)
 	}
 
-	var r mangadexSearchResp
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, err
-	}
+	var r malSearchRes
+	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+        return nil, err
+    }
 
 	out := make([]models.Manga, 0, len(r.Data))
-	for _, d := range r.Data {
-		genres := make([]string, 0, len(d.Attributes.Tags))
-		for _, t := range d.Attributes.Tags {
-			name := firstLocalized(t.Attributes.Name)
-			if name != "" {
-				genres = append(genres, name)
-			}
-		}
-		total := 0
-		if lc := strings.TrimSpace(d.Attributes.LastChapter); lc != "" {
-			if n, err := strconv.Atoi(lc); err == nil {
-				total = n
-			}
-		}
-		out = append(out, models.Manga{
-			ID:            d.ID,
-			Title:         firstLocalized(d.Attributes.Title),
-			Author:        "",
-			Genres:        genres,
-			Status:        strings.ToLower(d.Attributes.Status),
-			TotalChapters: total,
-			Description:   firstLocalized(d.Attributes.Description),
-			CoverURL:      "",
-		})
+	for _, d := range r.Data{
+		manga := convertMALToManga(d.Node.ID, d.Node.Title, d.Node.MainPicture, d.Node.AlternativeTitles,
+            d.Node.Synopsis, d.Node.NumChapters, d.Node.Status, d.Node.Genres, d.Node.Authors)
+        out = append(out, manga)
 	}
 	return out, nil
 }
 
-// ========== Jikan (no key) ==========
+func (m *MALSource) GetMangaByID(ctx context.Context, id string) (*models.Manga, error){
+	if m.ClientID == "" {
+        return nil, fmt.Errorf("MAL_CLIENT_ID not set in environment")
+    }
 
-type JikanSource struct {
-	BaseURL string
-	Client  *http.Client
-}
-
-func NewJikanSource() *JikanSource {
-	return &JikanSource{
-		BaseURL: "https://api.jikan.moe/v4",
-		Client:  &http.Client{Timeout: 10 * time.Second},
-	}
-}
-
-type jikanSearchResp struct {
-	Data []struct {
-		MalID    int    `json:"mal_id"`
-		Title    string `json:"title"`
-		Synopsis string `json:"synopsis"`
-		Chapters int    `json:"chapters"`
-		Status   string `json:"status"`
-		Genres   []struct {
-			Name string `json:"name"`
-		} `json:"genres"`
-		Images map[string]any `json:"images"`
-	} `json:"data"`
-}
-
-func (j *JikanSource) Search(ctx context.Context, q string, limit, offset int) ([]models.Manga, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	u, _ := url.Parse(j.BaseURL + "/manga")
+	u, _ := url.Parse(fmt.Sprintf("%s/manga/%s", m.BaseURL, id))
 	qs := u.Query()
-	if q != "" {
-		qs.Set("q", q)
-	}
-	qs.Set("limit", fmt.Sprintf("%d", limit))
-	if offset > 0 {
-		qs.Set("offset", fmt.Sprintf("%d", offset))
-	}
+	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	req.Header.Set("User-Agent", "MangaHub/1.0 (+github.com/binhbb2204/Manga-Hub-Group13)")
+	req.Header.Set("X-MAL-Client-ID", m.ClientID)
+    req.Header.Set("User-Agent", "MangaHub/1.0 (+github.com/binhbb2204/Manga-Hub-Group13)")
 
-	resp, err := j.Client.Do(req)
+	res, err := m.Client.Do(req)
 	if err != nil {
+        return nil, err
+    }
+    defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK{
+		return nil, fmt.Errorf("MAL API request failed: %s", res.Status)
+	}
+
+	var r malMangaDetailRes
+	if err := json.NewDecoder(res.Body).Decode(&r); err != nil{
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("jikan search failed: %s", resp.Status)
-	}
 
-	var r jikanSearchResp
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, err
-	}
+	manga := convertMALToManga(r.ID, r.Title, r.MainPicture, r.AlternativeTitles,
+        r.Synopsis, r.NumChapters, r.Status, r.Genres, r.Authors)
 
-	out := make([]models.Manga, 0, len(r.Data))
-	for _, d := range r.Data {
-		cover := ""
-		if im, ok := d.Images["jpg"].(map[string]any); ok {
-			if v, ok := im["image_url"].(string); ok {
-				cover = v
-			}
-		}
-		genres := make([]string, 0, len(d.Genres))
-		for _, g := range d.Genres {
-			genres = append(genres, g.Name)
-		}
-		out = append(out, models.Manga{
-			ID:            fmt.Sprintf("mal-%d", d.MalID),
-			Title:         d.Title,
-			Author:        "",
-			Genres:        genres,
-			Status:        strings.ToLower(d.Status),
-			TotalChapters: d.Chapters,
-			Description:   d.Synopsis,
-			CoverURL:      cover,
-		})
-	}
-	return out, nil
+	return &manga, nil
 }
 
-// ========== RapidAPI (example) ==========
+func convertMALToManga(id int, title string, mainPicture interface{}, altTitles interface{},
+    synopsis string, numChapters int, status string, genres interface{}, authors interface{}) models.Manga {
 
-type RapidAPISource struct {
-	BaseURL string
-	Host    string
-	APIKey  string
-	Client  *http.Client
+    // Convert cover URL
+    coverURL := ""
+    if pic, ok := mainPicture.(*struct {
+        Medium string `json:"medium"`
+        Large  string `json:"large"`
+    }); ok && pic != nil {
+        if pic.Large != "" {
+            coverURL = pic.Large
+        } else {
+            coverURL = pic.Medium
+        }
+    }
+
+    // Convert genres
+    genreList := []string{}
+    if g, ok := genres.([]struct {
+        ID   int    `json:"id"`
+        Name string `json:"name"`
+    }); ok {
+        for _, genre := range g {
+            genreList = append(genreList, genre.Name)
+        }
+    }
+
+    // Convert author
+    authorName := ""
+    if a, ok := authors.([]struct {
+        Node struct {
+            ID        int    `json:"id"`
+            FirstName string `json:"first_name"`
+            LastName  string `json:"last_name"`
+        } `json:"node"`
+        Role string `json:"role"`
+    }); ok && len(a) > 0 {
+        for _, author := range a {
+            if author.Role == "Story" || author.Role == "Story & Art" {
+                authorName = strings.TrimSpace(author.Node.FirstName + " " + author.Node.LastName)
+                break
+            }
+        }
+        if authorName == "" && len(a) > 0 {
+            authorName = strings.TrimSpace(a[0].Node.FirstName + " " + a[0].Node.LastName)
+        }
+    }
+
+    statusLower := strings.ToLower(status)
+    if statusLower == "finished" {
+        statusLower = "completed"
+    }
+
+    return models.Manga{
+        ID:            fmt.Sprintf("%d", id),
+        Title:         title,
+        Author:        authorName,
+        Genres:        genreList,
+        Status:        statusLower,
+        TotalChapters: numChapters,
+        Description:   synopsis,
+        CoverURL:      coverURL,
+    }
 }
 
-func NewRapidAPISource(baseURL, host, key string) *RapidAPISource {
-	return &RapidAPISource{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		Host:    host,
-		APIKey:  key,
-		Client:  &http.Client{Timeout: 10 * time.Second},
-	}
-}
-
-func (r *RapidAPISource) Search(ctx context.Context, q string, limit, offset int) ([]models.Manga, error) {
-	if r.APIKey == "" || r.Host == "" || r.BaseURL == "" {
-		return nil, errors.New("rapidapi not configured: set RAPIDAPI_URL, RAPIDAPI_HOST, RAPIDAPI_KEY")
-	}
-	// NOTE: Replace path and query params based on the specific RapidAPI provider you choose.
-	u, _ := url.Parse(r.BaseURL + "/manga")
-	qs := u.Query()
-	if q != "" {
-		qs.Set("q", q)
-	}
-	if limit > 0 {
-		qs.Set("limit", fmt.Sprintf("%d", limit))
-	}
-	if offset > 0 {
-		qs.Set("offset", fmt.Sprintf("%d", offset))
-	}
-	u.RawQuery = qs.Encode()
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	req.Header.Set("X-RapidAPI-Key", r.APIKey)
-	req.Header.Set("X-RapidAPI-Host", r.Host)
-	req.Header.Set("User-Agent", "MangaHub/1.0 (+github.com/binhbb2204/Manga-Hub-Group13)")
-
-	resp, err := r.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("rapidapi search failed: %s", resp.Status)
-	}
-
-	var raw any
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
-	}
-	// TODO: map raw -> []models.Manga based on selected provider schema
-	return []models.Manga{}, nil
-}
-
-// NewExternalSourceFromEnv chooses a source based on env vars.
-// MANGA_SOURCE=jikan|mangadex|rapidapi
-// For rapidapi, also set RAPIDAPI_URL, RAPIDAPI_HOST, RAPIDAPI_KEY.
 func NewExternalSourceFromEnv() (ExternalSource, error) {
-	src := strings.ToLower(strings.TrimSpace(os.Getenv("MANGA_SOURCE")))
-	switch src {
-	case "", "jikan":
-		return NewJikanSource(), nil
-	case "mangadex":
-		return NewMangaDexSource(), nil
-	case "rapidapi":
-		url := os.Getenv("RAPIDAPI_URL")
-		host := os.Getenv("RAPIDAPI_HOST")
-		key := os.Getenv("RAPIDAPI_KEY")
-		if url == "" || host == "" || key == "" {
-			return nil, errors.New("RAPIDAPI_URL, RAPIDAPI_HOST, RAPIDAPI_KEY must be set for rapidapi source")
-		}
-		return NewRapidAPISource(url, host, key), nil
-	default:
-		return nil, fmt.Errorf("unknown MANGA_SOURCE: %s", src)
-	}
+    clientID := strings.TrimSpace(os.Getenv("MAL_CLIENT_ID"))
+    if clientID == "" {
+        return nil, fmt.Errorf("MAL_CLIENT_ID is required in environment")
+    }
+    return NewMALSource(), nil
 }
+
+

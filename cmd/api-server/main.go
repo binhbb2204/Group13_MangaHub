@@ -14,10 +14,8 @@ import (
 )
 
 func main() {
-	// Load environment variables from .env if present (optional)
 	_ = godotenv.Load()
 
-	// Initialize database
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
 		dbPath = "./data/mangahub.db"
@@ -28,29 +26,24 @@ func main() {
 	}
 	defer database.Close()
 
-	// Get JWT secret from environment or use default (change in production!)
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 		log.Println("Warning: Using default JWT secret. Set JWT_SECRET environment variable in production!")
 	}
 
-	//frontend URL from environment or use default
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
 		frontendURL = "http://localhost:3000"
 		log.Println("Using default frontend URL: http://localhost:3000")
 	}
 
-	// Initialize handlers
 	authHandler := auth.NewHandler(jwtSecret)
 	mangaHandler := manga.NewHandler()
 	userHandler := user.NewHandler()
 
-	// Setup Gin router
 	router := gin.Default()
 
-	// CORS middleware configuration
 	config := cors.DefaultConfig()
 	config.AllowOrigins = []string{frontendURL}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
@@ -59,30 +52,29 @@ func main() {
 	config.AllowCredentials = true
 	router.Use(cors.New(config))
 
-	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// Auth routes (public)
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/register", authHandler.Register)
 		authGroup.POST("/login", authHandler.Login)
 	}
-	// Protected account routes
+
 	protectedAuth := router.Group("/auth")
 	protectedAuth.Use(auth.AuthMiddleware(jwtSecret))
 	{
 		protectedAuth.POST("/change-password", authHandler.ChangePassword)
 	}
 
-	// Manga routes (public for search, protected for create)
 	mangaGroup := router.Group("/manga")
 	{
-		mangaGroup.GET("", mangaHandler.SearchManga)      // Search manga
-		mangaGroup.GET("/all", mangaHandler.GetAllManga)  // Get all manga
-		mangaGroup.GET("/:id", mangaHandler.GetMangaByID) // Get manga by ID
+		mangaGroup.GET("", mangaHandler.SearchManga)           // Search manga in database
+		mangaGroup.GET("/all", mangaHandler.GetAllManga)       // Get all manga from database
+		mangaGroup.GET("/search", mangaHandler.SearchExternal) // Search manga from MAL API
+		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo) // Get manga info from MAL API
+		mangaGroup.GET("/:id", mangaHandler.GetMangaByID)      // Get manga by ID from database
 
 		// Protected routes
 		protected := mangaGroup.Group("")
@@ -103,7 +95,7 @@ func main() {
 		userGroup.DELETE("/library/:manga_id", userHandler.RemoveFromLibrary) // Remove from library
 	}
 
-	// Get port from environment or use default
+	//Get port from environment or use default
 	port := os.Getenv("API_PORT")
 	if port == "" {
 		port = "8080"

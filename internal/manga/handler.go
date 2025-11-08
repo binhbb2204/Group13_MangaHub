@@ -1,9 +1,11 @@
 package manga
 
 import (
+    "context"
     "database/sql"
     "encoding/json"
     "net/http"
+    "strconv"
     "strings"
 
     "github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
@@ -11,12 +13,18 @@ import (
     "github.com/gin-gonic/gin"
 )
 
-// Handler handles manga-related operations
-type Handler struct{}
+type Handler struct {
+    externalSource ExternalSource
+}
 
-// NewHandler creates a new manga handler
 func NewHandler() *Handler {
-    return &Handler{}
+    source, err := NewExternalSourceFromEnv()
+    if err != nil {
+        return &Handler{}
+    }
+    return &Handler{
+        externalSource: source,
+    }
 }
 
 // SearchManga searches for manga based on filters
@@ -27,12 +35,10 @@ func (h *Handler) SearchManga(c *gin.Context) {
         return
     }
 
-    // Set default values
     if req.Limit == 0 {
         req.Limit = 20
     }
 
-    // Build query
     query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url FROM manga WHERE 1=1`
     args := []interface{}{}
 
@@ -51,20 +57,23 @@ func (h *Handler) SearchManga(c *gin.Context) {
         args = append(args, req.Status)
     }
 
-    // Add pagination
+    if req.Genre != "" {
+        query += ` AND genres LIKE ?`
+        args = append(args, "%"+req.Genre+"%")
+    }
+
     query += ` LIMIT ? OFFSET ?`
     args = append(args, req.Limit, req.Offset)
 
-    // Execute query
     rows, err := database.DB.Query(query, args...)
-    if err != nil {
+    if err != nil{
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
         return
     }
     defer rows.Close()
 
     var mangas []models.Manga
-    for rows.Next() {
+    for rows.Next(){
         var manga models.Manga
         var genresJSON string
 
@@ -78,12 +87,11 @@ func (h *Handler) SearchManga(c *gin.Context) {
             &manga.Description,
             &manga.CoverURL,
         )
-        if err != nil {
+        if err != nil{
             continue
         }
 
-        // Parse genres JSON
-        if genresJSON != "" {
+        if genresJSON != ""{
             json.Unmarshal([]byte(genresJSON), &manga.Genres)
         }
 
@@ -96,8 +104,81 @@ func (h *Handler) SearchManga(c *gin.Context) {
     })
 }
 
-// GetMangaByID gets a specific manga by ID
-func (h *Handler) GetMangaByID(c *gin.Context) {
+// SearchExternal searches manga from external API (MyAnimeList)
+func (h *Handler) SearchExternal(c *gin.Context){
+    if h.externalSource == nil {
+        c.JSON(http.StatusServiceUnavailable, gin.H{"error": "External manga source not configured"})
+        return
+    }
+
+    query := c.Query("q")
+    if query == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'q' is required"})
+        return
+    }
+
+    if len(strings.TrimSpace(query)) < 3{
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Search query must be at least 3 characters"})
+        return
+    }
+
+    limitStr := c.DefaultQuery("limit", "20")
+    limit, err := strconv.Atoi(limitStr)
+    if err != nil || limit <= 0{
+        limit = 20
+    }
+
+    offsetStr := c.DefaultQuery("offset", "0")
+    offset, err := strconv.Atoi(offsetStr)
+    if err != nil || offset < 0{
+        offset = 0
+    }
+
+    ctx := context.Background()
+    mangas, err := h.externalSource.Search(ctx, query, limit, offset)
+    if err != nil {
+        if strings.Contains(err.Error(), "400") {
+            c.JSON(http.StatusOK, gin.H{
+                "mangas": []models.Manga{},
+                "count":  0,
+            })
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "mangas": mangas,
+        "count":  len(mangas),
+    })
+}
+
+// GetMangaInfo gets manga info from external API by ID
+func (h *Handler) GetMangaInfo(c *gin.Context){
+    if h.externalSource == nil {
+        c.JSON(http.StatusServiceUnavailable, gin.H{"error": "External manga source not configured"})
+        return
+    }
+
+    mangaID := c.Param("id")
+    if mangaID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Manga ID is required"})
+        return
+    }
+
+    ctx := context.Background()
+    manga, err := h.externalSource.GetMangaByID(ctx, mangaID)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, manga)
+}
+
+
+func (h *Handler) GetMangaByID(c *gin.Context){
     mangaID := c.Param("id")
 
     var manga models.Manga
@@ -115,8 +196,8 @@ func (h *Handler) GetMangaByID(c *gin.Context) {
         &manga.CoverURL,
     )
 
-    if err != nil {
-        if err == sql.ErrNoRows {
+    if err != nil{
+        if err == sql.ErrNoRows{
             c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found"})
             return
         }
@@ -125,7 +206,7 @@ func (h *Handler) GetMangaByID(c *gin.Context) {
     }
 
     // Parse genres JSON
-    if genresJSON != "" {
+    if genresJSON != ""{
         json.Unmarshal([]byte(genresJSON), &manga.Genres)
     }
 
@@ -133,27 +214,24 @@ func (h *Handler) GetMangaByID(c *gin.Context) {
 }
 
 // CreateManga creates a new manga entry (for testing purposes)
-func (h *Handler) CreateManga(c *gin.Context) {
+func (h *Handler) CreateManga(c *gin.Context){
     var manga models.Manga
     if err := c.ShouldBindJSON(&manga); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
-    // Validate required fields
-    if manga.ID == "" || manga.Title == "" {
+    if manga.ID == "" || manga.Title == ""{
         c.JSON(http.StatusBadRequest, gin.H{"error": "ID and title are required"})
         return
     }
 
-    // Convert genres to JSON
     genresJSON, err := json.Marshal(manga.Genres)
-    if err != nil {
+    if err != nil{
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to serialize genres"})
         return
     }
 
-    // Insert into database
     query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url) 
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     _, err = database.DB.Exec(
@@ -169,7 +247,7 @@ func (h *Handler) CreateManga(c *gin.Context) {
     )
 
     if err != nil {
-        if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+        if strings.Contains(err.Error(), "UNIQUE constraint failed"){
             c.JSON(http.StatusConflict, gin.H{"error": "Manga with this ID already exists"})
             return
         }
@@ -181,7 +259,7 @@ func (h *Handler) CreateManga(c *gin.Context) {
 }
 
 // GetAllManga retrieves all manga (for testing purposes)
-func (h *Handler) GetAllManga(c *gin.Context) {
+func (h *Handler) GetAllManga(c *gin.Context){
     query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url FROM manga`
     rows, err := database.DB.Query(query)
     if err != nil {
@@ -191,7 +269,7 @@ func (h *Handler) GetAllManga(c *gin.Context) {
     defer rows.Close()
 
     var mangas []models.Manga
-    for rows.Next() {
+    for rows.Next(){
         var manga models.Manga
         var genresJSON string
 
@@ -205,11 +283,10 @@ func (h *Handler) GetAllManga(c *gin.Context) {
             &manga.Description,
             &manga.CoverURL,
         )
-        if err != nil {
+        if err != nil{
             continue
         }
 
-        // Parse genres JSON
         if genresJSON != "" {
             json.Unmarshal([]byte(genresJSON), &manga.Genres)
         }
