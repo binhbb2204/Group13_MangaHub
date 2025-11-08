@@ -45,14 +45,14 @@ func main() {
 	}
 
 	// Search term (change or pass via CLI)
-	query := "attack on titan"
+	query := "doraemon"
 	fmt.Printf("Searching for %q...\n\n", query)
 
 	// Build API request
 	apiURL := "https://api.myanimelist.net/v2/manga"
 	params := url.Values{}
 	params.Add("q", query)
-	params.Add("limit", "17")
+	params.Add("limit", "170")
 	params.Add("fields", "id,title,authors,status,num_chapters")
 	fullURL := fmt.Sprintf("%s?%s", apiURL, params.Encode())
 
