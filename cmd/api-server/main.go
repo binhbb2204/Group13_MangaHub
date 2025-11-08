@@ -16,6 +16,17 @@ import (
 func main() {
 	_ = godotenv.Load()
 
+
+	logLevel := logger.INFO
+	if level := os.Getenv("LOG_LEVEL"); level != "" {
+		logLevel = logger.LogLevel(level)
+	}
+	jsonFormat := os.Getenv("LOG_FORMAT") == "json"
+	logger.Init(logLevel, jsonFormat, os.Stdout)
+
+	log := logger.GetLogger().WithContext("component", "api_server")
+	log.Info("starting_api_server", "version", "1.0.0")
+	
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
 		dbPath = "./data/mangahub.db"
