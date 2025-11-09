@@ -29,10 +29,13 @@ jobs:
       run: |
         $unformatted = gofmt -l .
         if ($unformatted) {
-          Write-Host "The following files are not formatted:"
-          Write-Host $unformatted
+          Write-Host "The following files are not formatted correctly:"
+          $unformatted | ForEach-Object { Write-Host "  - $_" }
+          Write-Host ""
+          Write-Host "Run 'gofmt -w .' to fix formatting issues"
           exit 1
         }
+        Write-Host "All files are properly formatted"
 
     - name: Run go vet
       run: go vet ./...
