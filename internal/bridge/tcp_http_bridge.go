@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/metrics"
 )
 
 type TCPClient struct {
@@ -153,10 +154,14 @@ func (b *Bridge) BroadcastToUser(userID string, event Event) {
 				"error", err.Error(),
 			)
 			failCount++
+			metrics.IncrementBroadcastFails()
 		} else {
 			successCount++
+			metrics.IncrementBroadcasts()
 		}
 	}
+
+	metrics.SetActiveConnections(int64(b.GetTotalConnectionCount()))
 
 	b.logger.Info("event_broadcast_complete",
 		"user_id", userID,

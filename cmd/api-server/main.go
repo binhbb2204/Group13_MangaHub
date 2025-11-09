@@ -5,10 +5,12 @@ import (
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/auth"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/health"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/user"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/metrics"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -58,6 +60,8 @@ func main() {
 	authHandler := auth.NewHandler(jwtSecret)
 	mangaHandler := manga.NewHandler()
 	userHandler := user.NewHandler(apiBridge)
+	healthHandler := health.NewHandler(apiBridge)
+	metricsHandler := metrics.NewHandler()
 
 	router := gin.Default()
 
@@ -72,6 +76,9 @@ func main() {
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+	router.GET("/healthz", healthHandler.Healthz)
+	router.GET("/readyz", healthHandler.Readyz)
+	router.GET("/metrics", metricsHandler.Metrics)
 
 	authGroup := router.Group("/auth")
 	{
