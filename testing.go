@@ -20,11 +20,11 @@ type Author struct {
 }
 
 type Manga struct {
-	ID          int       `json:"id"`
-	Title       string    `json:"title"`
-	Status      string    `json:"status"`
-	NumChapters int       `json:"num_chapters"`
-	Authors     []Author  `json:"authors"`
+	ID          int      `json:"id"`
+	Title       string   `json:"title"`
+	Status      string   `json:"status"`
+	NumChapters int      `json:"num_chapters"`
+	Authors     []Author `json:"authors"`
 }
 
 type MangaList struct {

@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 )
 
-func GenerateID(length int) (string, error){
+func GenerateID(length int) (string, error) {
 	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil{
+	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
