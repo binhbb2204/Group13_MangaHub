@@ -1,0 +1,63 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Verify Go installation
+      run: go version
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run gofmt check
+      run: |
+        $unformatted = gofmt -l .
+        if ($unformatted) {
+          Write-Host "The following files are not formatted:"
+          Write-Host $unformatted
+          exit 1
+        }
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Build test binaries
+      run: |
+        go test -c -o bin/bridge-test.exe ./internal/bridge/test
+        go test -c -o bin/tcp-test.exe ./internal/tcp/test
+        go test -c -o bin/logger-test.exe ./pkg/logger/test
+        go test -c -o bin/health-test.exe ./internal/health/test
+        go test -c -o bin/metrics-test.exe ./pkg/metrics/test
+
+    - name: Run all tests
+      run: go test ./...
+
+    - name: Run tests with coverage
+      run: |
+        go test -coverprofile=coverage.out ./internal/bridge/test
+        go test -coverprofile=coverage-tcp.out ./internal/tcp/test
+        go test -coverprofile=coverage-health.out ./internal/health/test
+        go test -coverprofile=coverage-metrics.out ./pkg/metrics/test
+        go test -coverprofile=coverage-logger.out ./pkg/logger/test
+
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-reports
+        path: coverage*.out
