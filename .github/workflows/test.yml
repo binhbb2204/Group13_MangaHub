@@ -52,12 +52,13 @@ jobs:
       run: go test ./...
 
     - name: Run tests with coverage
+      shell: pwsh
       run: |
-        go test -coverprofile=coverage.out ./internal/bridge/test
-        go test -coverprofile=coverage-tcp.out ./internal/tcp/test
-        go test -coverprofile=coverage-health.out ./internal/health/test
-        go test -coverprofile=coverage-metrics.out ./pkg/metrics/test
-        go test -coverprofile=coverage-logger.out ./pkg/logger/test
+        go test "-coverprofile=coverage.out" ./internal/bridge/test
+        go test "-coverprofile=coverage-tcp.out" ./internal/tcp/test
+        go test "-coverprofile=coverage-health.out" ./internal/health/test
+        go test "-coverprofile=coverage-metrics.out" ./pkg/metrics/test
+        go test "-coverprofile=coverage-logger.out" ./pkg/logger/test
 
     - name: Upload coverage artifacts
       uses: actions/upload-artifact@v4
