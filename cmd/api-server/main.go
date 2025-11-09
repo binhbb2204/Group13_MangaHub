@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/auth"
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/user"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
@@ -16,7 +17,6 @@ import (
 func main() {
 	_ = godotenv.Load()
 
-
 	logLevel := logger.INFO
 	if level := os.Getenv("LOG_LEVEL"); level != "" {
 		logLevel = logger.LogLevel(level)
@@ -26,7 +26,7 @@ func main() {
 
 	log := logger.GetLogger().WithContext("component", "api_server")
 	log.Info("starting_api_server", "version", "1.0.0")
-	
+
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
 		dbPath = "./data/mangahub.db"
@@ -50,9 +50,14 @@ func main() {
 		log.Info("using_default_frontend_url", "url", frontendURL)
 	}
 
+	apiBridge := bridge.NewBridge(logger.GetLogger())
+	apiBridge.Start()
+	defer apiBridge.Stop()
+	log.Info("tcp_http_bridge_started")
+
 	authHandler := auth.NewHandler(jwtSecret)
 	mangaHandler := manga.NewHandler()
-	userHandler := user.NewHandler()
+	userHandler := user.NewHandler(apiBridge)
 
 	router := gin.Default()
 

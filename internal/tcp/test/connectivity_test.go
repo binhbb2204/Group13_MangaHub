@@ -16,7 +16,7 @@ func TestConnectivityGracefulDisconnection(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9500")
+	server := tcp.NewServer("9500", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestConnectivityMultipleSequentialConnections(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9501")
+	server := tcp.NewServer("9501", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestConnectivityConnectionTimeout(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9502")
+	server := tcp.NewServer("9502", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestConnectivityAbruptDisconnection(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9503")
+	server := tcp.NewServer("9503", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestConnectivityConcurrentConnectionsStability(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9504")
+	server := tcp.NewServer("9504", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestConnectivityServerShutdownGraceful(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9505")
+	server := tcp.NewServer("9505", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

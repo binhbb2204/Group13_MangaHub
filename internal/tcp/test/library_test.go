@@ -65,7 +65,7 @@ func TestAddToLibrary(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9200")
+	server := tcp.NewServer("9200", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestGetLibrary(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	server := tcp.NewServer("9201")
+	server := tcp.NewServer("9201", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestGetProgress(t *testing.T) {
 		t.Fatalf("Failed to insert test progress: %v", err)
 	}
 
-	server := tcp.NewServer("9202")
+	server := tcp.NewServer("9202", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestRemoveFromLibrary(t *testing.T) {
 		t.Fatalf("Failed to insert test progress: %v", err)
 	}
 
-	server := tcp.NewServer("9203")
+	server := tcp.NewServer("9203", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestAddToLibraryMangaNotFound(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9204")
+	server := tcp.NewServer("9204", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

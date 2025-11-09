@@ -18,7 +18,7 @@ func TestScalabilityConcurrentConnections(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9300")
+	server := tcp.NewServer("9300", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestScalabilityHighThroughput(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9301")
+	server := tcp.NewServer("9301", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestScalabilityConcurrentDatabaseWrites(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9302")
+	server := tcp.NewServer("9302", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -229,7 +229,7 @@ func BenchmarkMessageProcessing(b *testing.B) {
 	database.DB.Exec(`INSERT INTO users (id, username, email, password_hash) VALUES ('test-user-1', 'testuser', 'test@example.com', 'hash123')`)
 	database.DB.Exec(`INSERT INTO manga (id, title, author, status, total_chapters) VALUES ('manga-1', 'Test Manga', 'Author', 'ongoing', 100)`)
 
-	server := tcp.NewServer("9303")
+	server := tcp.NewServer("9303", nil)
 	server.Start()
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
@@ -273,7 +273,7 @@ func TestScalabilityMemoryLeak(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9304")
+	server := tcp.NewServer("9304", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

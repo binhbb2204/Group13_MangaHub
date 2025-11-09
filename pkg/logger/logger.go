@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// LogLevel represents the severity of a log message
 type LogLevel string
 
 const (
@@ -20,7 +19,6 @@ const (
 	ERROR LogLevel = "ERROR"
 )
 
-// Logger represents a structured logger instance
 type Logger struct {
 	level      LogLevel
 	output     io.Writer
@@ -29,7 +27,6 @@ type Logger struct {
 	context    map[string]interface{}
 }
 
-// LogEntry represents a single log entry
 type LogEntry struct {
 	Timestamp string                 `json:"timestamp"`
 	Level     string                 `json:"level"`
@@ -40,12 +37,10 @@ type LogEntry struct {
 }
 
 var (
-	// Default logger instance
 	defaultLogger *Logger
 	once          sync.Once
 )
 
-// Init initializes the default logger
 func Init(level LogLevel, jsonFormat bool, output io.Writer) {
 	once.Do(func() {
 		if output == nil {
@@ -60,7 +55,6 @@ func Init(level LogLevel, jsonFormat bool, output io.Writer) {
 	})
 }
 
-// GetLogger returns the default logger instance
 func GetLogger() *Logger {
 	if defaultLogger == nil {
 		Init(INFO, false, os.Stdout)
@@ -68,7 +62,6 @@ func GetLogger() *Logger {
 	return defaultLogger
 }
 
-// New creates a new logger instance
 func New(level LogLevel, jsonFormat bool, output io.Writer) *Logger {
 	if output == nil {
 		output = os.Stdout
@@ -81,7 +74,6 @@ func New(level LogLevel, jsonFormat bool, output io.Writer) *Logger {
 	}
 }
 
-// WithContext creates a new logger with additional context fields
 func (l *Logger) WithContext(key string, value interface{}) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -100,7 +92,6 @@ func (l *Logger) WithContext(key string, value interface{}) *Logger {
 	}
 }
 
-// WithFields creates a new logger with multiple context fields
 func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -121,14 +112,12 @@ func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
 	}
 }
 
-// SetLevel sets the minimum log level
 func (l *Logger) SetLevel(level LogLevel) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.level = level
 }
 
-// shouldLog checks if a message at the given level should be logged
 func (l *Logger) shouldLog(level LogLevel) bool {
 	levels := map[LogLevel]int{
 		DEBUG: 0,
@@ -139,7 +128,6 @@ func (l *Logger) shouldLog(level LogLevel) bool {
 	return levels[level] >= levels[l.level]
 }
 
-// log is the core logging function
 func (l *Logger) log(level LogLevel, message string, keyvals ...interface{}) {
 	if !l.shouldLog(level) {
 		return
@@ -155,19 +143,16 @@ func (l *Logger) log(level LogLevel, message string, keyvals ...interface{}) {
 		Context:   make(map[string]interface{}),
 	}
 
-	// Copy existing context
 	for k, v := range l.context {
 		entry.Context[k] = v
 	}
 
-	// Add key-value pairs from keyvals
 	for i := 0; i < len(keyvals)-1; i += 2 {
 		if key, ok := keyvals[i].(string); ok {
 			entry.Context[key] = keyvals[i+1]
 		}
 	}
 
-	// Add file and line information for errors
 	if level == ERROR || level == WARN {
 		_, file, line, ok := runtime.Caller(2)
 		if ok {
@@ -176,18 +161,15 @@ func (l *Logger) log(level LogLevel, message string, keyvals ...interface{}) {
 		}
 	}
 
-	// Format output
 	var output string
 	if l.jsonFormat {
 		data, err := json.Marshal(entry)
 		if err != nil {
-			// Fallback to simple format if JSON marshaling fails
 			output = fmt.Sprintf("[%s] %s: %s\n", entry.Timestamp, entry.Level, entry.Message)
 		} else {
 			output = string(data) + "\n"
 		}
 	} else {
-		// Human-readable format
 		contextStr := ""
 		if len(entry.Context) > 0 {
 			contextStr = fmt.Sprintf(" %v", entry.Context)
@@ -198,54 +180,42 @@ func (l *Logger) log(level LogLevel, message string, keyvals ...interface{}) {
 	l.output.Write([]byte(output))
 }
 
-// Debug logs a debug message
 func (l *Logger) Debug(message string, keyvals ...interface{}) {
 	l.log(DEBUG, message, keyvals...)
 }
 
-// Info logs an info message
 func (l *Logger) Info(message string, keyvals ...interface{}) {
 	l.log(INFO, message, keyvals...)
 }
 
-// Warn logs a warning message
 func (l *Logger) Warn(message string, keyvals ...interface{}) {
 	l.log(WARN, message, keyvals...)
 }
 
-// Error logs an error message
 func (l *Logger) Error(message string, keyvals ...interface{}) {
 	l.log(ERROR, message, keyvals...)
 }
 
-// Package-level convenience functions using the default logger
-
-// Debug logs a debug message using the default logger
 func Debug(message string, keyvals ...interface{}) {
 	GetLogger().Debug(message, keyvals...)
 }
 
-// Info logs an info message using the default logger
 func Info(message string, keyvals ...interface{}) {
 	GetLogger().Info(message, keyvals...)
 }
 
-// Warn logs a warning message using the default logger
 func Warn(message string, keyvals ...interface{}) {
 	GetLogger().Warn(message, keyvals...)
 }
 
-// Error logs an error message using the default logger
 func Error(message string, keyvals ...interface{}) {
 	GetLogger().Error(message, keyvals...)
 }
 
-// WithContext creates a new logger with context using the default logger
 func WithContext(key string, value interface{}) *Logger {
 	return GetLogger().WithContext(key, value)
 }
 
-// WithFields creates a new logger with fields using the default logger
 func WithFields(fields map[string]interface{}) *Logger {
 	return GetLogger().WithFields(fields)
 }

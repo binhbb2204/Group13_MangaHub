@@ -18,7 +18,7 @@ func TestInteroperabilityJSONProtocol(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9600")
+	server := tcp.NewServer("9600", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestInteroperabilityMessageFormatCompliance(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9601")
+	server := tcp.NewServer("9601", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestInteroperabilityNewlineDelimiter(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9602")
+	server := tcp.NewServer("9602", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestInteroperabilityUTF8Encoding(t *testing.T) {
 		t.Fatalf("Failed to insert UTF-8 test data: %v", err)
 	}
 
-	server := tcp.NewServer("9603")
+	server := tcp.NewServer("9603", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestInteroperabilityMultipleMessageTypes(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9604")
+	server := tcp.NewServer("9604", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestInteroperabilityResponseFormat(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9605")
+	server := tcp.NewServer("9605", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

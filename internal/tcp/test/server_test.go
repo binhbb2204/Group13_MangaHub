@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewServer(t *testing.T) {
-	server := tcp.NewServer("9999")
+	server := tcp.NewServer("9999", nil)
 	if server == nil {
 		t.Fatal("NewServer returned nil")
 	}
@@ -21,7 +21,7 @@ func TestNewServer(t *testing.T) {
 }
 
 func TestServerStartStop(t *testing.T) {
-	server := tcp.NewServer("9091")
+	server := tcp.NewServer("9091", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestServerStartStop(t *testing.T) {
 }
 
 func TestServerAcceptConnection(t *testing.T) {
-	server := tcp.NewServer("9092")
+	server := tcp.NewServer("9092", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestServerAcceptConnection(t *testing.T) {
 }
 
 func TestMultipleConcurrentConnections(t *testing.T) {
-	server := tcp.NewServer("9093")
+	server := tcp.NewServer("9093", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestMultipleConcurrentConnections(t *testing.T) {
 }
 
 func TestEchoFunctionality(t *testing.T) {
-	server := tcp.NewServer("9094")
+	server := tcp.NewServer("9094", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestEchoFunctionality(t *testing.T) {
 }
 
 func TestClientDisconnection(t *testing.T) {
-	server := tcp.NewServer("9095")
+	server := tcp.NewServer("9095", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestClientDisconnection(t *testing.T) {
 }
 
 func TestServerStopWithActiveConnections(t *testing.T) {
-	server := tcp.NewServer("9096")
+	server := tcp.NewServer("9096", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -165,13 +165,13 @@ func TestServerStopWithActiveConnections(t *testing.T) {
 }
 
 func TestPortAlreadyInUse(t *testing.T) {
-	server1 := tcp.NewServer("9097")
+	server1 := tcp.NewServer("9097", nil)
 	if err := server1.Start(); err != nil {
 		t.Fatalf("Failed to start first server: %v", err)
 	}
 	defer server1.Stop()
 	time.Sleep(100 * time.Millisecond)
-	server2 := tcp.NewServer("9097")
+	server2 := tcp.NewServer("9097", nil)
 	err := server2.Start()
 	if err == nil {
 		server2.Stop()
@@ -180,7 +180,7 @@ func TestPortAlreadyInUse(t *testing.T) {
 }
 
 func BenchmarkServerAcceptConnections(b *testing.B) {
-	server := tcp.NewServer("9098")
+	server := tcp.NewServer("9098", nil)
 	if err := server.Start(); err != nil {
 		b.Fatalf("Failed to start server: %v", err)
 	}

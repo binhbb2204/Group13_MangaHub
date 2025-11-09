@@ -3,6 +3,7 @@ package tcp
 import (
 	"net"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 )
 
@@ -12,14 +13,16 @@ type Server struct {
 	running       bool
 	clientManager *ClientManager
 	log           *logger.Logger
+	bridge        *bridge.Bridge
 }
 
-func NewServer(port string) *Server {
+func NewServer(port string, br *bridge.Bridge) *Server {
 	return &Server{
 		Port:          port,
 		running:       false,
 		clientManager: NewClientManager(),
 		log:           logger.WithContext("component", "tcp_server"),
+		bridge:        br,
 	}
 }
 
@@ -51,7 +54,7 @@ func (s *Server) acceptConnections() {
 		client := &Client{Conn: conn, ID: clientID}
 		s.clientManager.Add(client)
 		s.log.Debug("new_client_accepted", "client_id", clientID)
-		go HandleConnection(client, s.clientManager, s.removeClient)
+		go HandleConnection(client, s.clientManager, s.removeClient, s.bridge)
 	}
 }
 

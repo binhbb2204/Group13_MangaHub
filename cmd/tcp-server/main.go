@@ -5,6 +5,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/tcp"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
@@ -40,7 +41,11 @@ func main() {
 		port = "9090"
 	}
 
-	server := tcp.NewServer(port)
+	tcpBridge := bridge.NewBridge(logger.WithContext("component", "bridge"))
+	tcpBridge.Start()
+	defer tcpBridge.Stop()
+
+	server := tcp.NewServer(port, tcpBridge)
 	if err := server.Start(); err != nil {
 		log.Error("failed_to_start_tcp_server", "error", err.Error())
 		os.Exit(1)

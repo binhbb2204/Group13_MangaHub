@@ -7,18 +7,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 )
 
-func HandleConnection(client *Client, manager *ClientManager, removeClient func(string)) {
+func HandleConnection(client *Client, manager *ClientManager, removeClient func(string), br *bridge.Bridge) {
 	log := logger.WithFields(map[string]interface{}{
 		"client_id": client.ID,
 		"component": "tcp_handler",
 	})
 
 	defer func() {
+		if client.UserID != "" && br != nil {
+			br.UnregisterTCPClient(client.Conn, client.UserID)
+		}
 		log.Info("client_disconnected")
 		removeClient(client.ID)
 		client.Conn.Close()
@@ -47,7 +51,7 @@ func HandleConnection(client *Client, manager *ClientManager, removeClient func(
 			continue
 		}
 
-		if err := routeMessage(client, msg, log); err != nil {
+		if err := routeMessage(client, msg, log, br); err != nil {
 			log.Error("message_handling_error",
 				"error", err.Error(),
 				"message_type", msg.Type)
@@ -56,24 +60,24 @@ func HandleConnection(client *Client, manager *ClientManager, removeClient func(
 	}
 }
 
-func routeMessage(client *Client, msg *Message, log *logger.Logger) error {
+func routeMessage(client *Client, msg *Message, log *logger.Logger, br *bridge.Bridge) error {
 	log = log.WithContext("message_type", msg.Type)
 
 	switch msg.Type {
 	case "ping":
 		return handlePing(client, log)
 	case "auth":
-		return handleAuth(client, msg.Payload, log)
+		return handleAuth(client, msg.Payload, log, br)
 	case "sync_progress":
-		return handleSyncProgress(client, msg.Payload, log)
+		return handleSyncProgress(client, msg.Payload, log, br)
 	case "get_library":
 		return handleGetLibrary(client, msg.Payload, log)
 	case "get_progress":
 		return handleGetProgress(client, msg.Payload, log)
 	case "add_to_library":
-		return handleAddToLibrary(client, msg.Payload, log)
+		return handleAddToLibrary(client, msg.Payload, log, br)
 	case "remove_from_library":
-		return handleRemoveFromLibrary(client, msg.Payload, log)
+		return handleRemoveFromLibrary(client, msg.Payload, log, br)
 	default:
 		err := NewProtocolUnknownTypeError(msg.Type)
 		SendError(client, err)
@@ -90,7 +94,7 @@ func handlePing(client *Client, log *logger.Logger) error {
 	return nil
 }
 
-func handleAuth(client *Client, payload json.RawMessage, log *logger.Logger) error {
+func handleAuth(client *Client, payload json.RawMessage, log *logger.Logger, br *bridge.Bridge) error {
 	var authPayload AuthPayload
 	if err := json.Unmarshal(payload, &authPayload); err != nil {
 		protoErr := NewProtocolInvalidPayloadError("Invalid auth payload")
@@ -121,6 +125,10 @@ func handleAuth(client *Client, payload json.RawMessage, log *logger.Logger) err
 	client.Username = claims.Username
 	client.Authenticated = true
 
+	if br != nil {
+		br.RegisterTCPClient(client.Conn, client.UserID)
+	}
+
 	log.Info("client_authenticated",
 		"user_id", client.UserID,
 		"username", client.Username)
@@ -128,7 +136,7 @@ func handleAuth(client *Client, payload json.RawMessage, log *logger.Logger) err
 	return nil
 }
 
-func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Logger) error {
+func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Logger, br *bridge.Bridge) error {
 	if !client.Authenticated {
 		authErr := NewAuthNotAuthenticatedError()
 		SendError(client, authErr)
@@ -210,6 +218,16 @@ func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Log
 		"manga_id", syncPayload.MangaID,
 		"chapter", syncPayload.CurrentChapter,
 		"status", status)
+
+	if br != nil {
+		br.NotifyProgressUpdate(bridge.ProgressUpdateEvent{
+			UserID:       client.UserID,
+			MangaID:      syncPayload.MangaID,
+			ChapterID:    syncPayload.CurrentChapter,
+			Status:       status,
+			LastReadDate: now,
+		})
+	}
 
 	client.Conn.Write(CreateSuccessMessage("Progress synced successfully"))
 	return nil
@@ -346,7 +364,7 @@ func handleGetProgress(client *Client, payload json.RawMessage, log *logger.Logg
 	return nil
 }
 
-func handleAddToLibrary(client *Client, payload json.RawMessage, log *logger.Logger) error {
+func handleAddToLibrary(client *Client, payload json.RawMessage, log *logger.Logger, br *bridge.Bridge) error {
 	if !client.Authenticated {
 		authErr := NewAuthNotAuthenticatedError()
 		SendError(client, authErr)
@@ -409,11 +427,20 @@ func handleAddToLibrary(client *Client, payload json.RawMessage, log *logger.Log
 	}
 
 	log.Info("manga_added_to_library", "manga_id", req.MangaID, "status", status)
+
+	if br != nil {
+		br.NotifyLibraryUpdate(bridge.LibraryUpdateEvent{
+			UserID:  client.UserID,
+			MangaID: req.MangaID,
+			Action:  "added",
+		})
+	}
+
 	client.Conn.Write(CreateSuccessMessage("Manga added to library successfully"))
 	return nil
 }
 
-func handleRemoveFromLibrary(client *Client, payload json.RawMessage, log *logger.Logger) error {
+func handleRemoveFromLibrary(client *Client, payload json.RawMessage, log *logger.Logger, br *bridge.Bridge) error {
 	if !client.Authenticated {
 		authErr := NewAuthNotAuthenticatedError()
 		SendError(client, authErr)
@@ -455,6 +482,15 @@ func handleRemoveFromLibrary(client *Client, payload json.RawMessage, log *logge
 	}
 
 	log.Info("manga_removed_from_library", "manga_id", req.MangaID)
+
+	if br != nil {
+		br.NotifyLibraryUpdate(bridge.LibraryUpdateEvent{
+			UserID:  client.UserID,
+			MangaID: req.MangaID,
+			Action:  "removed",
+		})
+	}
+
 	client.Conn.Write(CreateSuccessMessage("Manga removed from library successfully"))
 	return nil
 }

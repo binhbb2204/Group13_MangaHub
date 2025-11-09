@@ -16,7 +16,7 @@ func TestDurabilityDatabasePersistence(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9400")
+	server := tcp.NewServer("9400", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestDurabilityDataConsistency(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9401")
+	server := tcp.NewServer("9401", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestDurabilityServerRestart(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9402")
+	server := tcp.NewServer("9402", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestDurabilityTransactionRollback(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9403")
+	server := tcp.NewServer("9403", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

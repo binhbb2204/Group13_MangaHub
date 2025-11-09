@@ -42,7 +42,7 @@ func TestSyncProgressWithDatabase(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9100")
+	server := tcp.NewServer("9100", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestSyncProgressMangaNotFound(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9101")
+	server := tcp.NewServer("9101", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestSyncProgressInvalidStatus(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9102")
+	server := tcp.NewServer("9102", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

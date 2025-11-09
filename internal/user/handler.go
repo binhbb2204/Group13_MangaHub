@@ -5,17 +5,22 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/models"
 	"github.com/gin-gonic/gin"
 )
 
 // Handler handles user-related operations
-type Handler struct{}
+type Handler struct {
+	bridge *bridge.Bridge
+}
 
 // NewHandler creates a new user handler
-func NewHandler() *Handler {
-	return &Handler{}
+func NewHandler(br *bridge.Bridge) *Handler {
+	return &Handler{
+		bridge: br,
+	}
 }
 
 // GetProfile gets the current user's profile
@@ -71,6 +76,12 @@ func (h *Handler) AddToLibrary(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add manga to library"})
 		return
 	}
+
+	h.bridge.NotifyLibraryUpdate(bridge.LibraryUpdateEvent{
+		UserID:  userID,
+		MangaID: req.MangaID,
+		Action:  "added",
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Manga added to library successfully"})
 }
@@ -186,6 +197,14 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 		return
 	}
 
+	h.bridge.NotifyProgressUpdate(bridge.ProgressUpdateEvent{
+		UserID:       userID,
+		MangaID:      req.MangaID,
+		ChapterID:    req.CurrentChapter,
+		Status:       req.Status,
+		LastReadDate: time.Now(),
+	})
+
 	c.JSON(http.StatusOK, gin.H{"message": "Progress updated successfully"})
 }
 
@@ -215,6 +234,12 @@ func (h *Handler) RemoveFromLibrary(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Manga not in library"})
 		return
 	}
+
+	h.bridge.NotifyLibraryUpdate(bridge.LibraryUpdateEvent{
+		UserID:  userID,
+		MangaID: mangaID,
+		Action:  "removed",
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Manga removed from library successfully"})
 }

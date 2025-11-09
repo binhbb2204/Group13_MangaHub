@@ -18,7 +18,7 @@ func TestReliabilityInvalidAuthToken(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9800")
+	server := tcp.NewServer("9800", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestReliabilityMalformedMessages(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9801")
+	server := tcp.NewServer("9801", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestReliabilityUnauthenticatedOperations(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9802")
+	server := tcp.NewServer("9802", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestReliabilityInvalidDatabaseOperations(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9803")
+	server := tcp.NewServer("9803", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestReliabilityConcurrentUserUpdates(t *testing.T) {
 	database.DB.Exec(`INSERT INTO manga (id, title, author, status, total_chapters) 
 	                   VALUES ('manga-concurrent', 'Test Manga', 'Author', 'ongoing', 100)`)
 
-	server := tcp.NewServer("9804")
+	server := tcp.NewServer("9804", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestReliabilityConnectionStability(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9805")
+	server := tcp.NewServer("9805", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestReliabilityLargePayloadHandling(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9806")
+	server := tcp.NewServer("9806", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestReliabilityRapidConnectionCycles(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9807")
+	server := tcp.NewServer("9807", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

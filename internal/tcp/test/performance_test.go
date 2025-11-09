@@ -16,7 +16,7 @@ func TestPerformanceMessageLatency(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9700")
+	server := tcp.NewServer("9700", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPerformanceDatabaseQuerySpeed(t *testing.T) {
 			"manga-"+string(rune(i)), i*10)
 	}
 
-	server := tcp.NewServer("9701")
+	server := tcp.NewServer("9701", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestPerformanceConcurrentOperationsThroughput(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9702")
+	server := tcp.NewServer("9702", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestPerformanceAuthenticationSpeed(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9703")
+	server := tcp.NewServer("9703", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestPerformanceLargeLibraryRetrieval(t *testing.T) {
 			"manga-large-"+string(rune(i)), i)
 	}
 
-	server := tcp.NewServer("9704")
+	server := tcp.NewServer("9704", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
