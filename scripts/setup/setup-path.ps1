@@ -1,4 +1,6 @@
-$binPath = Join-Path $PSScriptRoot "bin"
+# Determine repository root (parent of scripts/setup)
+$repoRoot = (Get-Item $PSScriptRoot).Parent.Parent.FullName
+$binPath = Join-Path $repoRoot "bin"
 
 if ($env:PATH -notlike "*$binPath*") {
     $env:PATH = "$binPath;$env:PATH"
@@ -11,10 +13,16 @@ if ($env:PATH -notlike "*$binPath*") {
     Write-Host "  1. Open System Properties > Environment Variables" -ForegroundColor White
     Write-Host "  2. Edit PATH variable" -ForegroundColor White
     Write-Host "  3. Add: $binPath" -ForegroundColor White
-} else {
+}
+else {
     Write-Host "✓ PATH already contains bin directory" -ForegroundColor Green
 }
 
 Write-Host ""
 Write-Host "Testing mangahub command..." -ForegroundColor Cyan
-mangahub --version
+try {
+    mangahub --version
+}
+catch {
+    Write-Host "mangahub binary not found in PATH yet. Build it first: go build -o bin/mangahub.exe cmd/main.go" -ForegroundColor Yellow
+}
