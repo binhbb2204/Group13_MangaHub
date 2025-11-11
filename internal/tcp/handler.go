@@ -13,7 +13,7 @@ import (
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 )
 
-func HandleConnection(client *Client, manager *ClientManager, removeClient func(string), br *bridge.Bridge) {
+func HandleConnection(client *Client, manager *ClientManager, removeClient func(string), br *bridge.Bridge, sessionMgr *SessionManager, heartbeatMgr *HeartbeatManager) {
 	log := logger.WithFields(map[string]interface{}{
 		"client_id": client.ID,
 		"component": "tcp_handler",
@@ -23,6 +23,7 @@ func HandleConnection(client *Client, manager *ClientManager, removeClient func(
 		if client.UserID != "" && br != nil {
 			br.UnregisterTCPClient(client.Conn, client.UserID)
 		}
+		sessionMgr.RemoveSessionByClientID(client.ID)
 		log.Info("client_disconnected")
 		removeClient(client.ID)
 		client.Conn.Close()
@@ -51,7 +52,7 @@ func HandleConnection(client *Client, manager *ClientManager, removeClient func(
 			continue
 		}
 
-		if err := routeMessage(client, msg, log, br); err != nil {
+		if err := routeMessage(client, msg, log, br, sessionMgr, heartbeatMgr); err != nil {
 			log.Error("message_handling_error",
 				"error", err.Error(),
 				"message_type", msg.Type)
@@ -60,7 +61,7 @@ func HandleConnection(client *Client, manager *ClientManager, removeClient func(
 	}
 }
 
-func routeMessage(client *Client, msg *Message, log *logger.Logger, br *bridge.Bridge) error {
+func routeMessage(client *Client, msg *Message, log *logger.Logger, br *bridge.Bridge, sessionMgr *SessionManager, heartbeatMgr *HeartbeatManager) error {
 	log = log.WithContext("message_type", msg.Type)
 
 	switch msg.Type {
@@ -68,6 +69,14 @@ func routeMessage(client *Client, msg *Message, log *logger.Logger, br *bridge.B
 		return handlePing(client, log)
 	case "auth":
 		return handleAuth(client, msg.Payload, log, br)
+	case "connect":
+		return handleConnect(client, msg.Payload, log, sessionMgr, heartbeatMgr)
+	case "disconnect":
+		return handleDisconnect(client, msg.Payload, log, sessionMgr)
+	case "heartbeat":
+		return handleHeartbeat(client, msg.Payload, log, heartbeatMgr)
+	case "status_request":
+		return handleStatusRequest(client, log, sessionMgr, heartbeatMgr)
 	case "sync_progress":
 		return handleSyncProgress(client, msg.Payload, log, br)
 	case "get_library":
@@ -492,5 +501,132 @@ func handleRemoveFromLibrary(client *Client, payload json.RawMessage, log *logge
 	}
 
 	client.Conn.Write(CreateSuccessMessage("Manga removed from library successfully"))
+	return nil
+}
+
+func handleConnect(client *Client, payload json.RawMessage, log *logger.Logger, sessionMgr *SessionManager, heartbeatMgr *HeartbeatManager) error {
+	if !client.Authenticated {
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
+	}
+
+	var connectPayload ConnectPayload
+	if err := json.Unmarshal(payload, &connectPayload); err != nil {
+		protoErr := NewProtocolInvalidPayloadError("Invalid connect payload")
+		SendError(client, protoErr)
+		return protoErr
+	}
+
+	session := sessionMgr.CreateSession(client.ID, client.UserID, connectPayload.DeviceType, connectPayload.DeviceName)
+	heartbeatMgr.RecordHeartbeat(client.ID, 0)
+
+	log.Info("client_connected_sync",
+		"session_id", session.SessionID,
+		"device_type", connectPayload.DeviceType,
+		"device_name", connectPayload.DeviceName)
+
+	response := CreateConnectResponseMessage(session.SessionID, connectPayload.DeviceType)
+	_, err := client.Conn.Write(response)
+	if err != nil {
+		return NewNetworkWriteError(err)
+	}
+	return nil
+}
+
+func handleDisconnect(client *Client, payload json.RawMessage, log *logger.Logger, sessionMgr *SessionManager) error {
+	if !client.Authenticated {
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
+	}
+
+	var disconnectPayload DisconnectPayload
+	if err := json.Unmarshal(payload, &disconnectPayload); err != nil {
+		protoErr := NewProtocolInvalidPayloadError("Invalid disconnect payload")
+		SendError(client, protoErr)
+		return protoErr
+	}
+
+	session, ok := sessionMgr.GetSessionByClientID(client.ID)
+	if ok {
+		sessionMgr.RemoveSessionByClientID(client.ID)
+		log.Info("client_disconnected_sync",
+			"session_id", session.SessionID,
+			"reason", disconnectPayload.Reason)
+	}
+
+	client.Conn.Write(CreateSuccessMessage("Disconnected successfully"))
+	return nil
+}
+
+func handleHeartbeat(client *Client, payload json.RawMessage, log *logger.Logger, heartbeatMgr *HeartbeatManager) error {
+	if !client.Authenticated {
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
+	}
+
+	heartbeatMgr.RecordHeartbeat(client.ID, 0)
+
+	log.Debug("heartbeat_received", "client_id", client.ID)
+
+	response := CreateHeartbeatMessage()
+	_, err := client.Conn.Write(response)
+	if err != nil {
+		return NewNetworkWriteError(err)
+	}
+	return nil
+}
+
+func handleStatusRequest(client *Client, log *logger.Logger, sessionMgr *SessionManager, heartbeatMgr *HeartbeatManager) error {
+	if !client.Authenticated {
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
+	}
+
+	session, ok := sessionMgr.GetSessionByClientID(client.ID)
+	if !ok {
+		bizErr := NewProtocolInvalidPayloadError("No active session")
+		SendError(client, bizErr)
+		return bizErr
+	}
+
+	lastHeartbeat, ok := heartbeatMgr.GetLastHeartbeat(client.ID)
+	var lastHeartbeatStr string
+	if ok {
+		lastHeartbeatStr = lastHeartbeat.Format(time.RFC3339)
+	}
+
+	rtt, _ := heartbeatMgr.GetRTT(client.ID)
+	quality := heartbeatMgr.GetNetworkQuality(client.ID)
+
+	uptime := int64(time.Since(session.ConnectedAt).Seconds())
+
+	statusPayload := StatusResponsePayload{
+		ConnectionStatus: "active",
+		ServerAddress:    client.Conn.LocalAddr().String(),
+		Uptime:           uptime,
+		LastHeartbeat:    lastHeartbeatStr,
+		SessionID:        session.SessionID,
+		DevicesOnline:    1,
+		MessagesSent:     session.MessagesSent,
+		MessagesReceived: session.MessagesReceived,
+		NetworkQuality:   quality,
+		RTT:              int64(rtt.Milliseconds()),
+	}
+
+	response := CreateStatusResponseMessage(statusPayload)
+
+	log.Debug("status_request_handled",
+		"session_id", session.SessionID,
+		"uptime", uptime,
+		"network_quality", quality)
+
+	_, err := client.Conn.Write(response)
+	if err != nil {
+		return NewNetworkWriteError(err)
+	}
 	return nil
 }

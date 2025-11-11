@@ -2,27 +2,31 @@ package tcp
 
 import (
 	"net"
+	"sync/atomic"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 )
 
 type Server struct {
-	Port          string
-	listener      net.Listener
-	running       bool
-	clientManager *ClientManager
-	log           *logger.Logger
-	bridge        *bridge.Bridge
+	Port             string
+	listener         net.Listener
+	running          atomic.Bool
+	clientManager    *ClientManager
+	log              *logger.Logger
+	bridge           *bridge.Bridge
+	sessionManager   *SessionManager
+	heartbeatManager *HeartbeatManager
 }
 
 func NewServer(port string, br *bridge.Bridge) *Server {
 	return &Server{
-		Port:          port,
-		running:       false,
-		clientManager: NewClientManager(),
-		log:           logger.WithContext("component", "tcp_server"),
-		bridge:        br,
+		Port:             port,
+		clientManager:    NewClientManager(),
+		log:              logger.WithContext("component", "tcp_server"),
+		bridge:           br,
+		sessionManager:   NewSessionManager(),
+		heartbeatManager: NewHeartbeatManager(DefaultHeartbeatConfig()),
 	}
 }
 
@@ -34,17 +38,18 @@ func (s *Server) Start() error {
 		s.log.Error("failed_to_start_tcp_server", "error", netErr.Error(), "port", s.Port)
 		return netErr
 	}
-	s.running = true
+	s.running.Store(true)
+	s.heartbeatManager.Start()
 	s.log.Info("tcp_server_started", "port", s.Port)
 	go s.acceptConnections()
 	return nil
 }
 
 func (s *Server) acceptConnections() {
-	for s.running {
+	for s.running.Load() {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			if s.running {
+			if s.running.Load() {
 				netErr := NewNetworkConnectionError(err)
 				s.log.Warn("accept_connection_error", "error", netErr.Error())
 			}
@@ -54,15 +59,17 @@ func (s *Server) acceptConnections() {
 		client := &Client{Conn: conn, ID: clientID}
 		s.clientManager.Add(client)
 		s.log.Debug("new_client_accepted", "client_id", clientID)
-		go HandleConnection(client, s.clientManager, s.removeClient, s.bridge)
+		go HandleConnection(client, s.clientManager, s.removeClient, s.bridge, s.sessionManager, s.heartbeatManager)
 	}
 }
 
 func (s *Server) Stop() error {
-	s.running = false
+	s.running.Store(false)
+	s.heartbeatManager.Stop()
 	s.log.Info("tcp_server_stopping", "active_clients", len(s.clientManager.List()))
 
 	for _, client := range s.clientManager.List() {
+		s.sessionManager.RemoveSessionByClientID(client.ID)
 		client.Conn.Close()
 		s.clientManager.Remove(client.ID)
 	}
