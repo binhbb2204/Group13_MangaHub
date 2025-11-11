@@ -52,11 +52,11 @@ func (hm *HeartbeatManager) Start() {
 func (hm *HeartbeatManager) Stop() {
 	hm.stopMu.Lock()
 	defer hm.stopMu.Unlock()
-	
+
 	if hm.stopped {
 		return
 	}
-	
+
 	hm.log.Info("heartbeat_manager_stopping")
 	hm.stopped = true
 	close(hm.stopChan)
