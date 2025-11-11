@@ -32,6 +32,7 @@ func init() {
 	rootCmd.AddCommand(mangaCmd)
 	rootCmd.AddCommand(libraryCmd)
 	rootCmd.AddCommand(progressCmd)
+	rootCmd.AddCommand(syncCmd)
 
 }
 

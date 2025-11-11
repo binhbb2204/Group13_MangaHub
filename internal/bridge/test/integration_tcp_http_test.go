@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,17 +25,27 @@ func (a mockAddr) Network() string { return "tcp" }
 func (a mockAddr) String() string  { return a.s }
 
 type bufConn struct {
+	mu  sync.Mutex
 	buf bytes.Buffer
 }
 
-func (c *bufConn) Read(p []byte) (int, error)         { return 0, nil }
-func (c *bufConn) Write(p []byte) (int, error)        { return c.buf.Write(p) }
+func (c *bufConn) Read(p []byte) (int, error) { return 0, nil }
+func (c *bufConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(p)
+}
 func (c *bufConn) Close() error                       { return nil }
 func (c *bufConn) LocalAddr() net.Addr                { return mockAddr{"127.0.0.1:0"} }
 func (c *bufConn) RemoteAddr() net.Addr               { return mockAddr{"127.0.0.1:0"} }
 func (c *bufConn) SetDeadline(t time.Time) error      { return nil }
 func (c *bufConn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *bufConn) SetWriteDeadline(t time.Time) error { return nil }
+func (c *bufConn) GetString() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
 
 func setupIntegrationEnv(t *testing.T) (*bridge.Bridge, func()) {
 	tmpDir := t.TempDir()
@@ -81,9 +92,9 @@ func TestIntegration_LibraryAddBroadcast(t *testing.T) {
 		t.Fatalf("unexpected HTTP status: %d", resp.Code)
 	}
 	time.Sleep(150 * time.Millisecond)
-	line1 := userAConn1.buf.String()
-	line2 := userAConn2.buf.String()
-	lineB := userBConn.buf.String()
+	line1 := userAConn1.GetString()
+	line2 := userAConn2.GetString()
+	lineB := userBConn.GetString()
 	if line1 == "" || line2 == "" {
 		t.Fatalf("expected event for userA connections")
 	}
@@ -120,7 +131,7 @@ func TestIntegration_ProgressUpdateEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected HTTP status: %d", resp.Code)
 	}
 	time.Sleep(150 * time.Millisecond)
-	line := tcpConn.buf.String()
+	line := tcpConn.GetString()
 	if line == "" {
 		t.Fatalf("no progress_update event received")
 	}
@@ -165,7 +176,7 @@ func TestIntegration_ErrorIsolation(t *testing.T) {
 		t.Fatalf("expected non-200 for invalid manga")
 	}
 	time.Sleep(100 * time.Millisecond)
-	if got := tcpConn.buf.String(); got != "" {
+	if got := tcpConn.GetString(); got != "" {
 		t.Fatalf("unexpected event received after failed operation: %s", got)
 	}
 }
@@ -199,7 +210,7 @@ func TestIntegration_MultiEventBroadcast(t *testing.T) {
 		t.Fatalf("unexpected HTTP status #2: %d", resp2.Code)
 	}
 	time.Sleep(200 * time.Millisecond)
-	raw := strings.TrimSpace(tcpConn.buf.String())
+	raw := strings.TrimSpace(tcpConn.GetString())
 	lines := strings.Split(raw, "\n")
 	var events []bridge.Event
 	for _, ln := range lines {
@@ -242,7 +253,7 @@ func TestIntegration_Unauthorized_NoBroadcast(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.Code)
 	}
 	time.Sleep(100 * time.Millisecond)
-	if got := strings.TrimSpace(tcpConn.buf.String()); got != "" {
+	if got := strings.TrimSpace(tcpConn.GetString()); got != "" {
 		t.Fatalf("expected no events, got: %s", got)
 	}
 }
