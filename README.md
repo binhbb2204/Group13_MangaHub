@@ -1,5 +1,5 @@
 # Manga-Hub-Group13
-
+# WTF
 A CLI-based manga management system that lets you search, track, and manage your manga collection using the MyAnimeList API.
 
 ## Getting Started
