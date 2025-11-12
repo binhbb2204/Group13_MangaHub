@@ -62,7 +62,6 @@ type malSearchRes struct {
 			Authors []struct {
 				Node struct {
 					ID        int    `json:"id"`
-					Name      string `json:"name"`
 					FirstName string `json:"first_name"`
 					LastName  string `json:"last_name"`
 				} `json:"node"`
@@ -87,10 +86,20 @@ type malMangaDetailRes struct {
 		En       string   `json:"en"`
 		Ja       string   `json:"ja"`
 	} `json:"alternative_titles"`
-	Synopsis    string `json:"synopsis"`
-	NumChapters int    `json:"num_chapters"`
-	Status      string `json:"status"`
-	Genres      []struct {
+	StartDate       string  `json:"start_date"`
+	EndDate         string  `json:"end_date"`
+	Synopsis        string  `json:"synopsis"`
+	Mean            float64 `json:"mean"`
+	Rank            int     `json:"rank"`
+	Popularity      int     `json:"popularity"`
+	NumListUsers    int     `json:"num_list_users"`
+	NumScoringUsers int     `json:"num_scoring_users"`
+	MediaType       string  `json:"media_type"`
+	NumChapters     int     `json:"num_chapters"`
+	NumVolumes      int     `json:"num_volumes"`
+	Status          string  `json:"status"`
+	Background      string  `json:"background"`
+	Genres          []struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"genres"`
@@ -102,6 +111,12 @@ type malMangaDetailRes struct {
 		} `json:"node"`
 		Role string `json:"role"`
 	} `json:"authors"`
+	Serialization []struct {
+		Node struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"node"`
+	} `json:"serialization"`
 }
 
 func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]models.Manga, error) {
@@ -122,7 +137,7 @@ func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]
 	if offset > 0 {
 		qs.Set("offset", fmt.Sprintf("%d", offset))
 	}
-	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors{name,first_name,last_name}")
+	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors{first_name,last_name}")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -159,7 +174,7 @@ func (m *MALSource) GetMangaByID(ctx context.Context, id string) (*models.Manga,
 
 	u, _ := url.Parse(fmt.Sprintf("%s/manga/%s", m.BaseURL, id))
 	qs := u.Query()
-	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors{name,first_name,last_name}")
+	qs.Set("fields", "id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,media_type,status,genres,num_volumes,num_chapters,authors{first_name,last_name},background,serialization{name}")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -181,16 +196,94 @@ func (m *MALSource) GetMangaByID(ctx context.Context, id string) (*models.Manga,
 		return nil, err
 	}
 
-	manga := convertMALToManga(r.ID, r.Title, r.MainPicture, r.AlternativeTitles,
-		r.Synopsis, r.NumChapters, r.Status, r.Genres, r.Authors)
+	manga := convertMALDetailToManga(r)
 
 	return &manga, nil
+}
+
+func convertMALDetailToManga(r malMangaDetailRes) models.Manga {
+	coverURL := ""
+	if r.MainPicture != nil {
+		if r.MainPicture.Large != "" {
+			coverURL = r.MainPicture.Large
+		} else {
+			coverURL = r.MainPicture.Medium
+		}
+	}
+
+	genreList := []string{}
+	for _, g := range r.Genres {
+		genreList = append(genreList, g.Name)
+	}
+
+	authorName := ""
+	authorsList := []map[string]interface{}{}
+	for _, a := range r.Authors {
+		name := strings.TrimSpace(a.Node.FirstName + " " + a.Node.LastName)
+		authorsList = append(authorsList, map[string]interface{}{
+			"node": map[string]interface{}{
+				"first_name": a.Node.FirstName,
+				"last_name":  a.Node.LastName,
+			},
+			"role": a.Role,
+		})
+		if authorName == "" && (a.Role == "Story" || a.Role == "Story & Art") {
+			authorName = name
+		}
+	}
+	if authorName == "" && len(r.Authors) > 0 {
+		authorName = strings.TrimSpace(r.Authors[0].Node.FirstName + " " + r.Authors[0].Node.LastName)
+	}
+
+	altTitlesMap := map[string]interface{}{}
+	if r.AlternativeTitles != nil {
+		altTitlesMap["en"] = r.AlternativeTitles.En
+		altTitlesMap["ja"] = r.AlternativeTitles.Ja
+		altTitlesMap["synonyms"] = r.AlternativeTitles.Synonyms
+	}
+
+	serializationList := []map[string]interface{}{}
+	for _, s := range r.Serialization {
+		serializationList = append(serializationList, map[string]interface{}{
+			"node": map[string]interface{}{
+				"name": s.Node.Name,
+			},
+		})
+	}
+
+	statusLower := strings.ToLower(r.Status)
+	if statusLower == "finished" {
+		statusLower = "completed"
+	}
+
+	return models.Manga{
+		ID:                fmt.Sprintf("%d", r.ID),
+		Title:             r.Title,
+		Author:            authorName,
+		Genres:            genreList,
+		Status:            statusLower,
+		TotalChapters:     r.NumChapters,
+		Description:       r.Synopsis,
+		CoverURL:          coverURL,
+		AlternativeTitles: altTitlesMap,
+		StartDate:         r.StartDate,
+		EndDate:           r.EndDate,
+		Mean:              r.Mean,
+		Rank:              r.Rank,
+		Popularity:        r.Popularity,
+		NumListUsers:      r.NumListUsers,
+		NumScoringUsers:   r.NumScoringUsers,
+		MediaType:         r.MediaType,
+		NumVolumes:        r.NumVolumes,
+		Authors:           authorsList,
+		Serialization:     serializationList,
+		Background:        r.Background,
+	}
 }
 
 func convertMALToManga(id int, title string, mainPicture interface{}, altTitles interface{},
 	synopsis string, numChapters int, status string, genres interface{}, authors interface{}) models.Manga {
 
-	// Convert cover URL
 	coverURL := ""
 	if pic, ok := mainPicture.(*struct {
 		Medium string `json:"medium"`
@@ -219,7 +312,6 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 	if a, ok := authors.([]struct {
 		Node struct {
 			ID        int    `json:"id"`
-			Name      string `json:"name"`
 			FirstName string `json:"first_name"`
 			LastName  string `json:"last_name"`
 		} `json:"node"`
@@ -227,20 +319,14 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 	}); ok && len(a) > 0 {
 		for _, author := range a {
 			if author.Role == "Story" || author.Role == "Story & Art" {
-				authorName = author.Node.Name
-				if authorName == "" {
-					authorName = strings.TrimSpace(author.Node.FirstName + " " + author.Node.LastName)
-				}
+				authorName = strings.TrimSpace(author.Node.FirstName + " " + author.Node.LastName)
 				if authorName != "" {
 					break
 				}
 			}
 		}
 		if authorName == "" && len(a) > 0 {
-			authorName = a[0].Node.Name
-			if authorName == "" {
-				authorName = strings.TrimSpace(a[0].Node.FirstName + " " + a[0].Node.LastName)
-			}
+			authorName = strings.TrimSpace(a[0].Node.FirstName + " " + a[0].Node.LastName)
 		}
 	}
 
