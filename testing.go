@@ -8,12 +8,16 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/joho/godotenv"
 )
 
+// --- Structs ---
+
 type Author struct {
 	Node struct {
+		Name      string `json:"name"`
 		FirstName string `json:"first_name"`
 		LastName  string `json:"last_name"`
 	} `json:"node"`
@@ -33,61 +37,52 @@ type MangaList struct {
 	} `json:"data"`
 }
 
-func main() {
-	// Load .env
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
-	}
+// --- Fetch Manga Ranking ---
 
-	clientID := os.Getenv("MAL_CLIENT_ID")
-	if clientID == "" {
-		log.Fatal("Missing MAL_CLIENT_ID in .env")
-	}
-
-	// Search term (change or pass via CLI)
-	query := "doraemon"
-	fmt.Printf("Searching for %q...\n\n", query)
-
-	// Build API request
-	apiURL := "https://api.myanimelist.net/v2/manga"
+func fetchRanking(clientID, rankingType string, limit int) ([]Manga, error) {
+	apiURL := "https://api.myanimelist.net/v2/manga/ranking"
 	params := url.Values{}
-	params.Add("q", query)
-	params.Add("limit", "170")
+	params.Add("ranking_type", rankingType)
+	params.Add("limit", fmt.Sprintf("%d", limit))
 	params.Add("fields", "id,title,authors,status,num_chapters")
-	fullURL := fmt.Sprintf("%s?%s", apiURL, params.Encode())
 
-	req, err := http.NewRequest("GET", fullURL, nil)
+	req, err := http.NewRequest("GET", apiURL+"?"+params.Encode(), nil)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	req.Header.Set("X-MAL-Client-ID", clientID)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("MAL API returned status: %v", resp.Status)
+		return nil, fmt.Errorf("MAL API returned status: %v", resp.Status)
 	}
 
 	var result MangaList
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	fmt.Printf("Found %d results:\n\n", len(result.Data))
+	var mangas []Manga
+	for _, item := range result.Data {
+		mangas = append(mangas, item.Node)
+	}
+	return mangas, nil
+}
 
-	// Header
+// --- Print Manga Table ---
+
+func printTable(title string, mangas []Manga) {
+	fmt.Printf("\n📚 %s\n", title)
 	fmt.Println("┌─────────────────────┬──────────────────────┬──────────────────────┬──────────┬─────────────┐")
 	fmt.Println("│ ID                  │ Title                │ Author               │ Status   │ Chapters    │")
 	fmt.Println("├─────────────────────┼──────────────────────┼──────────────────────┼──────────┼─────────────┤")
 
-	// Rows
-	for _, item := range result.Data {
-		m := item.Node
-
+	for _, m := range mangas {
 		title := m.Title
 		if len(title) > 20 {
 			title = title[:20] + "..."
@@ -95,21 +90,26 @@ func main() {
 
 		author := "?"
 		if len(m.Authors) > 0 {
-			first := m.Authors[0].Node.FirstName
-			last := m.Authors[0].Node.LastName
-			fullName := strings.TrimSpace(first + " " + last)
-			if len(fullName) > 20 {
-				fullName = fullName[:20] + "..."
+			name := m.Authors[0].Node.Name
+			if name == "" {
+				first := m.Authors[0].Node.FirstName
+				last := m.Authors[0].Node.LastName
+				name = strings.TrimSpace(first + " " + last)
 			}
-			author = fullName
+			if len(name) > 20 {
+				name = name[:20] + "..."
+			}
+			if name != "" {
+				author = name
+			}
 		}
 
 		status := m.Status
-		if len(status) > 7 {
-			status = status[:7] + "..."
-		}
 		if status == "" {
 			status = "?"
+		}
+		if len(status) > 7 {
+			status = status[:7] + "..."
 		}
 
 		chapters := "?"
@@ -122,4 +122,57 @@ func main() {
 	}
 
 	fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
+}
+
+// --- Main Program ---
+
+func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	clientID := os.Getenv("MAL_CLIENT_ID")
+	if clientID == "" {
+		log.Fatal("Missing MAL_CLIENT_ID in .env")
+	}
+
+	fmt.Println("Fetching featured manga for homepage...\n")
+
+	sections := []struct {
+		label string
+		key   string
+	}{
+		{"🏆 Top Ranked Manga", "all"},
+		{"🔥 Most Popular Manga", "bypopularity"},
+		{"❤️ Most Favorited Manga", "favorite"},
+	}
+
+	var wg sync.WaitGroup
+	results := make([][]Manga, len(sections))
+
+	for i, s := range sections {
+		wg.Add(1)
+		go func(i int, s struct {
+			label string
+			key   string
+		}) {
+			defer wg.Done()
+			mangas, err := fetchRanking(clientID, s.key, 10)
+			if err != nil {
+				log.Printf("Error fetching %s: %v", s.label, err)
+				return
+			}
+			results[i] = mangas
+		}(i, s)
+	}
+
+	wg.Wait()
+
+	// Print all sections
+	for i, s := range sections {
+		if len(results[i]) > 0 {
+			printTable(s.label, results[i])
+		}
+	}
 }

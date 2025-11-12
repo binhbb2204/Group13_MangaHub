@@ -16,6 +16,7 @@ var (
 	searchGenre  string
 	searchStatus string
 	searchLimit  int
+	rankingLimit int
 )
 
 var mangaCmd = &cobra.Command{
@@ -50,19 +51,11 @@ var mangaSearchCmd = &cobra.Command{
 			return err
 		}
 
-		requestLimit := searchLimit
-		if searchGenre != "" || searchStatus != "" {
-			requestLimit = searchLimit * 3
-		}
-		if requestLimit > 100 {
-			requestLimit = 100 //MAL API max
-		}
-
-		searchURL := fmt.Sprintf("%s/manga/search?q=%s", serverURL, url.QueryEscape(query))
-
-		if requestLimit > 0 {
-			searchURL += fmt.Sprintf("&limit=%d", requestLimit)
-		}
+		   requestLimit := searchLimit
+		   if requestLimit > 100 || requestLimit <= 0 {
+			   requestLimit = 100
+		   }
+		   searchURL := fmt.Sprintf("%s/manga/search?q=%s&limit=%d", serverURL, url.QueryEscape(query), requestLimit)
 
 		res, err := http.Get(searchURL)
 		if err != nil {
@@ -192,10 +185,10 @@ var mangaSearchCmd = &cobra.Command{
 		fmt.Println("...")
 		fmt.Printf("\nFound %d results:\n\n", len(filteredMangas))
 
-		//Print table header
-		fmt.Println("┌─────────────────────┬──────────────────────┬───────────┬──────────┬──────────────┐")
-		fmt.Println("│ ID                  │ Title                │ Author    │ Status   │ Chapters     │")
-		fmt.Println("├─────────────────────┼──────────────────────┼───────────┼──────────┼──────────────┤")
+		//Print table header (match ranking table width)
+		fmt.Println("┌─────────────────────┬──────────────────────┬──────────────────────┬──────────┬─────────────┐")
+		fmt.Println("│ ID                  │ Title                │ Author               │ Status   │ Chapters    │")
+		fmt.Println("├─────────────────────┼──────────────────────┼──────────────────────┼──────────┼─────────────┤")
 
 		//Print manga rows
 		for _, manga := range filteredMangas {
@@ -204,15 +197,15 @@ var mangaSearchCmd = &cobra.Command{
 				chaptersStr = "Ongoing"
 			}
 
-			fmt.Printf("│ %-19s │ %-20s │ %-9s │ %-8s │ %-12s │\n",
+			fmt.Printf("│ %-19s │ %-20s │ %-20s │ %-8s │ %-11s │\n",
 				truncateString(manga.ID, 19),
 				truncateString(manga.Title, 20),
-				truncateString(manga.Author, 9),
+				truncateString(manga.Author, 20),
 				truncateString(manga.Status, 8),
 				chaptersStr)
 		}
 
-		fmt.Println("└─────────────────────┴──────────────────────┴───────────┴──────────┴──────────────┘")
+		fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
 		fmt.Println("\nUse 'mangahub manga info <id>' to view details")
 		fmt.Println("Use 'mangahub library add --manga-id <id>' to add to your library")
 
@@ -235,7 +228,41 @@ var mangaInfoCmd = &cobra.Command{
 			return err
 		}
 
-		res, err := http.Get(fmt.Sprintf("%s/manga/info/%s", serverURL, mangaID))
+		// Support both MAL numeric id and human-friendly slug (e.g., "one-piece")
+		displayID := mangaID
+		resolvedID := mangaID
+		// If not purely numeric, try to resolve by searching title
+		isNumeric := true
+		for _, ch := range mangaID {
+			if ch < '0' || ch > '9' {
+				isNumeric = false
+				break
+			}
+		}
+		if !isNumeric {
+			q := strings.ReplaceAll(mangaID, "-", " ")
+			searchURL := fmt.Sprintf("%s/manga/search?q=%s&limit=1", serverURL, url.QueryEscape(q))
+			searchRes, err := http.Get(searchURL)
+			if err == nil {
+				defer searchRes.Body.Close()
+				if searchRes.StatusCode == http.StatusOK {
+					var sr struct {
+						Mangas []struct {
+							ID    string `json:"id"`
+							Title string `json:"title"`
+						} `json:"mangas"`
+						Count int `json:"count"`
+					}
+					b, _ := io.ReadAll(searchRes.Body)
+					_ = json.Unmarshal(b, &sr)
+					if sr.Count > 0 && len(sr.Mangas) > 0 {
+						resolvedID = sr.Mangas[0].ID
+					}
+				}
+			}
+		}
+
+		res, err := http.Get(fmt.Sprintf("%s/manga/info/%s", serverURL, resolvedID))
 		if err != nil {
 			printError("Failed to get manga info: Server connection error")
 			fmt.Println("Check server status: mangahub server status")
@@ -271,35 +298,83 @@ var mangaInfoCmd = &cobra.Command{
 		}
 		json.Unmarshal(body, &manga)
 
-		fmt.Println("\n" + strings.Repeat("=", 60))
-		fmt.Printf("  %s\n", manga.Title)
-		fmt.Println(strings.Repeat("=", 60))
-		fmt.Printf("\nID:             %s\n", manga.ID)
-		fmt.Printf("Author:         %s\n", manga.Author)
-		fmt.Printf("Status:         %s\n", manga.Status)
+		// Title box
+		fmt.Println()
+		fmt.Println("┌─────────────────────────────────────────────────────────────────────┐")
+		title := strings.ToUpper(manga.Title)
+		boxWidth := 69
+		lp := (boxWidth - len(title)) / 2
+		rp := boxWidth - len(title) - lp
+		if lp < 0 {
+			lp = 0
+		}
+		if rp < 0 {
+			rp = 0
+		}
+		fmt.Printf("│%s%s%s│\n", strings.Repeat(" ", lp), title, strings.Repeat(" ", rp))
+		fmt.Println("└─────────────────────────────────────────────────────────────────────┘")
 
+		// Basic Information
+		fmt.Println("Basic Information:")
+		fmt.Printf("ID: %s\n", displayID)
+		altTitle := manga.Title
+		fmt.Printf("Title: %s\n", altTitle)
+		artist := manga.Author
+		if artist == "" {
+			artist = "-"
+		}
+		author := manga.Author
+		if author == "" {
+			author = "-"
+		}
+		fmt.Printf("Author: %s\n", author)
+		fmt.Printf("Artist: %s\n", artist)
+		if len(manga.Genres) > 0 {
+			fmt.Printf("Genres: %s\n", strings.Join(manga.Genres, ", "))
+		} else {
+			fmt.Println("Genres: -")
+		}
+		status := manga.Status
+		if status == "" {
+			status = "-"
+		}
+		fmt.Printf("Status: %s\n", status)
+		fmt.Println("Year: -")
+
+		// Progress
+		fmt.Println("Progress:")
 		if manga.TotalChapters > 0 {
 			fmt.Printf("Total Chapters: %d\n", manga.TotalChapters)
 		} else {
-			fmt.Printf("Total Chapters: Ongoing\n")
+			fmt.Println("Total Chapters: Ongoing")
 		}
+		fmt.Println("Total Volumes: -")
+		fmt.Println("Serialization: -")
+		fmt.Println("Publisher: -")
+		fmt.Println("Your Status: -")
+		fmt.Println("Current Chapter: -")
+		fmt.Println("Last Updated: -")
+		fmt.Println("Started Reading: -")
+		fmt.Println("Personal Rating: -")
 
-		if len(manga.Genres) > 0 {
-			fmt.Printf("Genres:         %s\n", strings.Join(manga.Genres, ", "))
-		}
-
-		if manga.CoverURL != "" {
-			fmt.Printf("Cover URL:      %s\n", manga.CoverURL)
-		}
-
+		// Description
 		if manga.Description != "" {
-			fmt.Printf("\nDescription:\n%s\n", wrapText(manga.Description, 60))
+			fmt.Println("Description:")
+			fmt.Println(wrapText(manga.Description, 80))
 		}
 
-		fmt.Println("\n" + strings.Repeat("-", 60))
-		fmt.Println("\nActions:")
-		fmt.Printf("  Add to library:     mangahub library add --manga-id %s --status reading\n", manga.ID)
-		fmt.Printf("  Update progress:    mangahub progress update --manga-id %s --chapter <num>\n", manga.ID)
+		// External Links
+		fmt.Println("External Links:")
+		if manga.ID != "" {
+			fmt.Printf("MyAnimeList: https://myanimelist.net/manga/%s\n", manga.ID)
+		}
+		fmt.Printf("MangaDex (search): https://mangadex.org/titles?q=%s\n", url.QueryEscape(manga.Title))
+
+		// Actions
+		fmt.Println("Actions:")
+		fmt.Printf("Update Progress: mangahub progress update --manga-id %s --chapter <num>\n", displayID)
+		fmt.Printf("Rate/Review: mangahub library update --manga-id %s --rating <1-10>\n", displayID)
+		fmt.Printf("Remove: mangahub library remove --manga-id %s\n", displayID)
 		fmt.Println()
 
 		return nil
@@ -372,7 +447,6 @@ var mangaListCmd = &cobra.Command{
 	},
 }
 
-// Helper function to truncate strings
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -380,7 +454,6 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// Helper function to wrap text
 func wrapText(text string, width int) string {
 	if len(text) <= width {
 		return text
@@ -407,12 +480,272 @@ func wrapText(text string, width int) string {
 	return result.String()
 }
 
+var mangaFeaturedCmd = &cobra.Command{
+	Use:   "featured",
+	Short: "Show featured manga for homepage",
+	Long:  `Display top ranked, most popular, and most favorited manga from MyAnimeList.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		serverURL, err := config.GetServerURL()
+		if err != nil {
+			printError("Configuration not initialized")
+			fmt.Println("Run: mangahub init")
+			return err
+		}
+
+		res, err := http.Get(fmt.Sprintf("%s/manga/featured", serverURL))
+		if err != nil {
+			printError("Failed to fetch featured manga: Server connection error")
+			fmt.Println("Check server status: mangahub server status")
+			return err
+		}
+		defer res.Body.Close()
+
+		body, _ := io.ReadAll(res.Body)
+
+		if res.StatusCode != http.StatusOK {
+			var errRes map[string]string
+			json.Unmarshal(body, &errRes)
+			printError(fmt.Sprintf("Failed to fetch featured manga: %s", errRes["error"]))
+			return fmt.Errorf("failed to fetch featured manga")
+		}
+
+		var result struct {
+			Sections []struct {
+				Label  string `json:"label"`
+				Mangas []struct {
+					ID          int    `json:"id"`
+					Title       string `json:"title"`
+					Status      string `json:"status"`
+					NumChapters int    `json:"num_chapters"`
+					Authors     []struct {
+						Node struct {
+							Name      string `json:"name"`
+							FirstName string `json:"first_name"`
+							LastName  string `json:"last_name"`
+						} `json:"node"`
+					} `json:"authors"`
+				} `json:"mangas"`
+			} `json:"sections"`
+		}
+		json.Unmarshal(body, &result)
+
+		fmt.Println("\n" + strings.Repeat("=", 80))
+		fmt.Println("  📚 FEATURED MANGA FOR HOMEPAGE")
+		fmt.Println(strings.Repeat("=", 80))
+
+		for _, section := range result.Sections {
+			if len(section.Mangas) == 0 {
+				continue
+			}
+
+			fmt.Println()
+			fmt.Println("┌─────────────────────────────────────────────────────────────────────┐")
+			boxWidth := 69
+			leftPadding := (boxWidth - len(section.Label)) / 2
+			rightPadding := boxWidth - len(section.Label) - leftPadding
+			fmt.Printf("│%s%s%s│\n", strings.Repeat(" ", leftPadding), section.Label, strings.Repeat(" ", rightPadding))
+			fmt.Println("└─────────────────────────────────────────────────────────────────────┘")
+
+			fmt.Println("┌─────────────────────┬──────────────────────┬──────────────────────┬──────────┬─────────────┐")
+			fmt.Println("│ ID                  │ Title                │ Author               │ Status   │ Chapters    │")
+			fmt.Println("├─────────────────────┼──────────────────────┼──────────────────────┼──────────┼─────────────┤")
+
+			for _, manga := range section.Mangas {
+				title := manga.Title
+				if len(title) > 20 {
+					title = title[:17] + "..."
+				}
+
+				author := "?"
+				if len(manga.Authors) > 0 {
+					name := manga.Authors[0].Node.Name
+					if name == "" {
+						name = strings.TrimSpace(manga.Authors[0].Node.FirstName + " " + manga.Authors[0].Node.LastName)
+					}
+					if name != "" {
+						if len(name) > 20 {
+							name = name[:17] + "..."
+						}
+						author = name
+					}
+				}
+
+				status := manga.Status
+				if status == "" {
+					status = "?"
+				}
+				if len(status) > 8 {
+					status = status[:5] + "..."
+				}
+
+				chapters := "?"
+				if manga.NumChapters > 0 {
+					chapters = fmt.Sprintf("%d", manga.NumChapters)
+				}
+
+				fmt.Printf("│ %-19d │ %-20s │ %-20s │ %-8s │ %-11s │\n",
+					manga.ID, title, author, status, chapters)
+			}
+
+			fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
+		}
+
+		fmt.Println("\nUse 'mangahub manga info <id>' to view details")
+		fmt.Println("Use 'mangahub library add --manga-id <id>' to add to your library")
+		fmt.Println()
+
+		return nil
+	},
+}
+
+var mangaRankingCmd = &cobra.Command{
+	Use:   "ranking [type]",
+	Short: "Show manga ranking by type",
+	Long:  `Display manga ranking from MyAnimeList. Available types: all, bypopularity, favorite.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		rankingType := "all"
+		if len(args) > 0 {
+			rankingType = args[0]
+		}
+
+		serverURL, err := config.GetServerURL()
+		if err != nil {
+			printError("Configuration not initialized")
+			fmt.Println("Run: mangahub init")
+			return err
+		}
+
+		limit := rankingLimit
+		if limit <= 0 || limit > 100 {
+			limit = 100
+		}
+		rankingURL := fmt.Sprintf("%s/manga/ranking?type=%s&limit=%d", serverURL, rankingType, limit)
+
+		res, err := http.Get(rankingURL)
+		if err != nil {
+			printError("Failed to fetch ranking: Server connection error")
+			fmt.Println("Check server status: mangahub server status")
+			return err
+		}
+		defer res.Body.Close()
+
+		body, _ := io.ReadAll(res.Body)
+
+		if res.StatusCode != http.StatusOK {
+			var errRes map[string]string
+			json.Unmarshal(body, &errRes)
+			printError(fmt.Sprintf("Failed to fetch ranking: %s", errRes["error"]))
+			return fmt.Errorf("failed to fetch ranking")
+		}
+
+		var result struct {
+			Mangas []struct {
+				ID          int    `json:"id"`
+				Title       string `json:"title"`
+				Status      string `json:"status"`
+				NumChapters int    `json:"num_chapters"`
+				Authors     []struct {
+					Node struct {
+						FirstName string `json:"first_name"`
+						LastName  string `json:"last_name"`
+					} `json:"node"`
+				} `json:"authors"`
+			} `json:"mangas"`
+			Count int    `json:"count"`
+			Type  string `json:"type"`
+		}
+		json.Unmarshal(body, &result)
+
+		if result.Count == 0 {
+			fmt.Printf("\nNo manga found for ranking type: %s\n", rankingType)
+			fmt.Println("\nAvailable ranking types:")
+			fmt.Println("  - all: Top ranked manga")
+			fmt.Println("  - bypopularity: Most popular manga")
+			fmt.Println("  - favorite: Most favorited manga")
+			return nil
+		}
+
+		typeLabel := map[string]string{
+			"all":          "Top Ranked Manga",
+			"bypopularity": "Most Popular Manga",
+			"favorite":     "Most Favorited Manga",
+		}
+
+		label := typeLabel[result.Type]
+		if label == "" {
+			label = "Manga Ranking"
+		}
+
+		fmt.Println()
+		fmt.Println("┌─────────────────────────────────────────────────────────────────────┐")
+		boxWidth := 69
+		leftPadding := (boxWidth - len(label)) / 2
+		rightPadding := boxWidth - len(label) - leftPadding
+		fmt.Printf("│%s%s%s│\n", strings.Repeat(" ", leftPadding), label, strings.Repeat(" ", rightPadding))
+		fmt.Println("└─────────────────────────────────────────────────────────────────────┘")
+		fmt.Printf("Found %d results\n\n", result.Count)
+
+		fmt.Println("┌─────────────────────┬──────────────────────┬──────────────────────┬──────────┬─────────────┐")
+		fmt.Println("│ ID                  │ Title                │ Author               │ Status   │ Chapters    │")
+		fmt.Println("├─────────────────────┼──────────────────────┼──────────────────────┼──────────┼─────────────┤")
+
+		for _, manga := range result.Mangas {
+			title := manga.Title
+			if len(title) > 20 {
+				title = title[:17] + "..."
+			}
+
+			author := ""
+			if len(manga.Authors) > 0 {
+				first := manga.Authors[0].Node.FirstName
+				last := manga.Authors[0].Node.LastName
+				fullName := strings.TrimSpace(first + " " + last)
+				if fullName != "" {
+					if len(fullName) > 20 {
+						fullName = fullName[:17] + "..."
+					}
+					author = fullName
+				}
+			}
+
+			status := manga.Status
+			if status == "" {
+				status = "?"
+			}
+			if len(status) > 8 {
+				status = status[:5] + "..."
+			}
+
+			chapters := "?"
+			if manga.NumChapters > 0 {
+				chapters = fmt.Sprintf("%d", manga.NumChapters)
+			}
+
+			   fmt.Printf("│ %-19d │ %-20s │ %-20s │ %-8s │ %-11s │\n",
+				   manga.ID, title, author, status, chapters)
+		}
+
+		fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
+		fmt.Println("\nUse 'mangahub manga info <id>' to view details")
+		fmt.Println("Use 'mangahub library add --manga-id <id>' to add to your library")
+		fmt.Println()
+
+		return nil
+	},
+}
+
 func init() {
 	mangaSearchCmd.Flags().StringVar(&searchGenre, "genre", "", "Filter by genre (e.g., Action, Romance, Comedy)")
 	mangaSearchCmd.Flags().StringVar(&searchStatus, "status", "", "Filter by status (ongoing, completed, finished)")
-	mangaSearchCmd.Flags().IntVar(&searchLimit, "limit", 200, "Maximum number of results")
+	mangaSearchCmd.Flags().IntVar(&searchLimit, "limit", 100, "Maximum number of results (max 100)")
 
 	mangaCmd.AddCommand(mangaSearchCmd)
 	mangaCmd.AddCommand(mangaInfoCmd)
 	mangaCmd.AddCommand(mangaListCmd)
+	mangaCmd.AddCommand(mangaFeaturedCmd)
+	mangaCmd.AddCommand(mangaRankingCmd)
+
+	// Flags for ranking command
+	mangaRankingCmd.Flags().IntVar(&rankingLimit, "limit", 100, "Maximum number of results (max 100)")
 }

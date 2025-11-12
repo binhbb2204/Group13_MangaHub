@@ -4,9 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/models"
@@ -15,6 +19,29 @@ import (
 
 type Handler struct {
 	externalSource ExternalSource
+}
+
+// This is for get manga based on ranking
+type Author struct {
+	Node struct {
+		Name      string `json:"name"`
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+	} `json:"node"`
+}
+
+type RankingManga struct {
+	ID          int      `json:"id"`
+	Title       string   `json:"title"`
+	Status      string   `json:"status"`
+	NumChapters int      `json:"num_chapters"`
+	Authors     []Author `json:"authors"`
+}
+
+type RankingList struct {
+	Data []struct {
+		Node RankingManga `json:"node"`
+	} `json:"data"`
 }
 
 func NewHandler() *Handler {
@@ -35,9 +62,9 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		return
 	}
 
-	if req.Limit == 0 {
-		req.Limit = 20
-	}
+	   if req.Limit <= 0 || req.Limit > 100 {
+		   req.Limit = 100
+	   }
 
 	query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url FROM manga WHERE 1=1`
 	args := []interface{}{}
@@ -122,10 +149,10 @@ func (h *Handler) SearchExternal(c *gin.Context) {
 		return
 	}
 
-	limitStr := c.DefaultQuery("limit", "20")
+	limitStr := c.DefaultQuery("limit", "100")
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		limit = 20
+	if err != nil || limit <= 0 || limit > 100 {
+		limit = 100
 	}
 
 	offsetStr := c.DefaultQuery("offset", "0")
@@ -168,7 +195,32 @@ func (h *Handler) GetMangaInfo(c *gin.Context) {
 	}
 
 	ctx := context.Background()
-	manga, err := h.externalSource.GetMangaByID(ctx, mangaID)
+
+	// If the provided id is not purely numeric, treat it as a slug/name and resolve via search
+	isNumeric := true
+	for _, ch := range mangaID {
+		if ch < '0' || ch > '9' {
+			isNumeric = false
+			break
+		}
+	}
+
+	resolvedID := mangaID
+	if !isNumeric {
+		q := strings.ReplaceAll(mangaID, "-", " ")
+		results, err := h.externalSource.Search(ctx, q, 1, 0)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if len(results) == 0 || results[0].ID == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found"})
+			return
+		}
+		resolvedID = results[0].ID
+	}
+
+	manga, err := h.externalSource.GetMangaByID(ctx, resolvedID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -296,5 +348,131 @@ func (h *Handler) GetAllManga(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"mangas": mangas,
 		"count":  len(mangas),
+	})
+}
+
+func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]RankingManga, error) {
+	apiURL := "https://api.myanimelist.net/v2/manga/ranking"
+	params := url.Values{}
+	params.Add("ranking_type", rankingType)
+	params.Add("limit", fmt.Sprintf("%d", limit))
+	params.Add("fields", "id,title,authors{name,first_name,last_name},status,num_chapters")
+
+	req, err := http.NewRequest("GET", apiURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-MAL-Client-ID", clientID)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MAL API returned status: %v", res.Status)
+	}
+
+	var result RankingList
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	var mangas []RankingManga
+	for _, item := range result.Data {
+		mangas = append(mangas, item.Node)
+	}
+	return mangas, nil
+}
+
+func (h *Handler) GetFeaturedManga(c *gin.Context) {
+	clientID := os.Getenv("MAL_CLIENT_ID")
+	if clientID == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MAL API not configured"})
+		return
+	}
+
+	sections := []struct {
+		Label string `json:"label"`
+		Key   string `json:"key"`
+	}{
+		{"Top Ranked Manga", "all"},
+		{"Most Popular Manga", "bypopularity"},
+		{"Most Favorited Manga", "favorite"},
+	}
+
+	type SectionResult struct {
+		Label  string         `json:"label"`
+		Mangas []RankingManga `json:"mangas"`
+	}
+
+	var wg sync.WaitGroup
+	results := make([]SectionResult, len(sections))
+	errors := make([]error, len(sections))
+
+	for i, s := range sections {
+		wg.Add(1)
+		go func(i int, s struct {
+			Label string `json:"label"`
+			Key   string `json:"key"`
+		}) {
+			defer wg.Done()
+			mangas, err := h.fetchRanking(clientID, s.Key, 10)
+			if err != nil {
+				errors[i] = err
+				return
+			}
+			results[i] = SectionResult{
+				Label:  s.Label,
+				Mangas: mangas,
+			}
+		}(i, s)
+	}
+
+	wg.Wait()
+
+	allFailed := true
+	for _, err := range errors {
+		if err == nil {
+			allFailed = false
+			break
+		}
+	}
+
+	if allFailed {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch manga rankings"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"sections": results,
+	})
+}
+
+func (h *Handler) GetRanking(c *gin.Context) {
+	clientID := os.Getenv("MAL_CLIENT_ID")
+	if clientID == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MAL API not configured"})
+		return
+	}
+
+	rankingType := c.DefaultQuery("type", "all")
+	   limitStr := c.DefaultQuery("limit", "100")
+	   limit, err := strconv.Atoi(limitStr)
+	   if err != nil || limit <= 0 || limit > 100 {
+		   limit = 100
+	   }
+
+	mangas, err := h.fetchRanking(clientID, rankingType, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"mangas": mangas,
+		"count":  len(mangas),
+		"type":   rankingType,
 	})
 }

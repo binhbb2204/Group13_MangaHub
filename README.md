@@ -108,6 +108,15 @@ mangahub manga search "one piece" --limit 5
 mangahub manga info 13  # That's the MAL ID you see in search results
 ```
 
+```bash
+mangahub manga featured
+
+mangahub manga ranking all
+
+mangahub manga ranking bypopularity
+
+mangahub manga ranking favorite
+```
 ### Managing Your Library
 
 **Add a manga** - Found something you want to read?
@@ -161,6 +170,18 @@ Note: The API returns results from MyAnimeList, and you'll need to filter by gen
 ```
 GET http://localhost:8080/manga/info/13
 ```
+
+# Get featured manga for homepage
+curl http://localhost:8080/manga/featured
+
+# Get top ranked manga
+curl http://localhost:8080/manga/ranking?type=all&limit=20
+
+# Get most popular manga
+curl http://localhost:8080/manga/ranking?type=bypopularity&limit=10
+
+# Get most favorited manga
+curl http://localhost:8080/manga/ranking?type=favorite&limit=15
 
 **Register a new user:**
 ```
