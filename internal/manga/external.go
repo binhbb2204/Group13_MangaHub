@@ -62,6 +62,7 @@ type malSearchRes struct {
 			Authors []struct {
 				Node struct {
 					ID        int    `json:"id"`
+					Name      string `json:"name"`
 					FirstName string `json:"first_name"`
 					LastName  string `json:"last_name"`
 				} `json:"node"`
@@ -108,8 +109,8 @@ func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]
 		return nil, fmt.Errorf("MAL_CLIENT_ID not set in environment")
 	}
 
-	if limit <= 0 {
-		limit = 20
+	if limit <= 0 || limit > 100 {
+		limit = 100
 	}
 
 	u, _ := url.Parse(m.BaseURL + "/manga")
@@ -121,7 +122,7 @@ func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]
 	if offset > 0 {
 		qs.Set("offset", fmt.Sprintf("%d", offset))
 	}
-	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors")
+	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors{name,first_name,last_name}")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -158,7 +159,7 @@ func (m *MALSource) GetMangaByID(ctx context.Context, id string) (*models.Manga,
 
 	u, _ := url.Parse(fmt.Sprintf("%s/manga/%s", m.BaseURL, id))
 	qs := u.Query()
-	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors")
+	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors{name,first_name,last_name}")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -218,6 +219,7 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 	if a, ok := authors.([]struct {
 		Node struct {
 			ID        int    `json:"id"`
+			Name      string `json:"name"`
 			FirstName string `json:"first_name"`
 			LastName  string `json:"last_name"`
 		} `json:"node"`
@@ -225,12 +227,20 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 	}); ok && len(a) > 0 {
 		for _, author := range a {
 			if author.Role == "Story" || author.Role == "Story & Art" {
-				authorName = strings.TrimSpace(author.Node.FirstName + " " + author.Node.LastName)
-				break
+				authorName = author.Node.Name
+				if authorName == "" {
+					authorName = strings.TrimSpace(author.Node.FirstName + " " + author.Node.LastName)
+				}
+				if authorName != "" {
+					break
+				}
 			}
 		}
 		if authorName == "" && len(a) > 0 {
-			authorName = strings.TrimSpace(a[0].Node.FirstName + " " + a[0].Node.LastName)
+			authorName = a[0].Node.Name
+			if authorName == "" {
+				authorName = strings.TrimSpace(a[0].Node.FirstName + " " + a[0].Node.LastName)
+			}
 		}
 	}
 

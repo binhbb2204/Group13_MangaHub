@@ -94,17 +94,18 @@ func main() {
 
 	mangaGroup := router.Group("/manga")
 	{
-		mangaGroup.GET("", mangaHandler.SearchManga)           // Search manga in database
-		mangaGroup.GET("/all", mangaHandler.GetAllManga)       // Get all manga from database
-		mangaGroup.GET("/search", mangaHandler.SearchExternal) // Search manga from MAL API
-		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo) // Get manga info from MAL API
-		mangaGroup.GET("/:id", mangaHandler.GetMangaByID)      // Get manga by ID from database
-
+		mangaGroup.GET("", mangaHandler.SearchManga)       
+		mangaGroup.GET("/all", mangaHandler.GetAllManga)     
+		mangaGroup.GET("/search", mangaHandler.SearchExternal) 
+		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo) 
+		mangaGroup.GET("/:id", mangaHandler.GetMangaByID)      
+		mangaGroup.GET("/featured", mangaHandler.GetFeaturedManga) 
+		mangaGroup.GET("/ranking", mangaHandler.GetRanking) 
 		// Protected routes
 		protected := mangaGroup.Group("")
 		protected.Use(auth.AuthMiddleware(jwtSecret))
 		{
-			protected.POST("", mangaHandler.CreateManga) // Create manga (for testing)
+			protected.POST("", mangaHandler.CreateManga)
 		}
 	}
 
