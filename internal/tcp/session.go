@@ -8,21 +8,34 @@ import (
 )
 
 type ClientSession struct {
-	SessionID        string
-	DeviceType       string
-	DeviceName       string
-	ConnectedAt      time.Time
-	LastHeartbeat    time.Time
-	MessagesSent     int64
-	MessagesReceived int64
-	LastSyncTime     time.Time
-	LastSyncManga    string
-	LastSyncChapter  int
+	SessionID          string
+	UserID             string
+	DeviceType         string
+	DeviceName         string
+	ConnectedAt        time.Time
+	LastHeartbeat      time.Time
+	MessagesSent       int64
+	MessagesReceived   int64
+	LastSyncTime       time.Time
+	LastSyncManga      string
+	LastSyncMangaTitle string
+	LastSyncChapter    int
+	Subscribed         bool
+	EventTypes         []string
+}
+
+func (cs *ClientSession) GetUserID() string {
+	return cs.UserID
+}
+
+func (cs *ClientSession) GetDeviceType() string {
+	return cs.DeviceType
 }
 
 type SessionManager struct {
 	sessions        map[string]*ClientSession
 	clientToSession map[string]string
+	userToSessions  map[string][]string
 	mu              sync.RWMutex
 }
 
@@ -30,6 +43,7 @@ func NewSessionManager() *SessionManager {
 	return &SessionManager{
 		sessions:        make(map[string]*ClientSession),
 		clientToSession: make(map[string]string),
+		userToSessions:  make(map[string][]string),
 	}
 }
 
@@ -38,6 +52,7 @@ func (sm *SessionManager) CreateSession(clientID, userID, deviceType, deviceName
 	defer sm.mu.Unlock()
 	session := &ClientSession{
 		SessionID:        generateSessionID(deviceName, deviceType),
+		UserID:           userID,
 		DeviceType:       deviceType,
 		DeviceName:       deviceName,
 		ConnectedAt:      time.Now(),
@@ -47,14 +62,13 @@ func (sm *SessionManager) CreateSession(clientID, userID, deviceType, deviceName
 	}
 	sm.sessions[session.SessionID] = session
 	sm.clientToSession[clientID] = session.SessionID
-	return session
-}
 
-func (sm *SessionManager) GetSession(sessionID string) (*ClientSession, bool) {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	session, exists := sm.sessions[sessionID]
-	return session, exists
+	if _, exists := sm.userToSessions[userID]; !exists {
+		sm.userToSessions[userID] = make([]string, 0)
+	}
+	sm.userToSessions[userID] = append(sm.userToSessions[userID], session.SessionID)
+
+	return session
 }
 
 func (sm *SessionManager) GetSessionByClientID(clientID string) (*ClientSession, bool) {
@@ -66,6 +80,30 @@ func (sm *SessionManager) GetSessionByClientID(clientID string) (*ClientSession,
 	}
 	session, exists := sm.sessions[sessionID]
 	return session, exists
+}
+
+type sessionManagerAdapter struct {
+	sm *SessionManager
+}
+
+func (sma *sessionManagerAdapter) GetSubscribedClients() []string {
+	return sma.sm.GetSubscribedClients()
+}
+
+func (sma *sessionManagerAdapter) IsSubscribed(clientID string) bool {
+	return sma.sm.IsSubscribed(clientID)
+}
+
+func (sma *sessionManagerAdapter) GetSessionByClientID(clientID string) (any, bool) {
+	return sma.sm.GetSessionByClientID(clientID)
+}
+
+func (sm *SessionManager) AsInterface() interface {
+	GetSubscribedClients() []string
+	IsSubscribed(clientID string) bool
+	GetSessionByClientID(clientID string) (any, bool)
+} {
+	return &sessionManagerAdapter{sm: sm}
 }
 
 func (sm *SessionManager) UpdateHeartbeat(sessionID string) {
@@ -92,12 +130,13 @@ func (sm *SessionManager) IncrementMessagesReceived(sessionID string) {
 	}
 }
 
-func (sm *SessionManager) UpdateLastSync(sessionID, mangaID string, chapter int) {
+func (sm *SessionManager) UpdateLastSyncWithTitle(sessionID, mangaID, mangaTitle string, chapter int) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if session, exists := sm.sessions[sessionID]; exists {
 		session.LastSyncTime = time.Now()
 		session.LastSyncManga = mangaID
+		session.LastSyncMangaTitle = mangaTitle
 		session.LastSyncChapter = chapter
 	}
 }
@@ -105,6 +144,22 @@ func (sm *SessionManager) UpdateLastSync(sessionID, mangaID string, chapter int)
 func (sm *SessionManager) RemoveSession(sessionID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	session, exists := sm.sessions[sessionID]
+	if exists {
+		userID := session.UserID
+		sessions := sm.userToSessions[userID]
+		for i, sid := range sessions {
+			if sid == sessionID {
+				sm.userToSessions[userID] = append(sessions[:i], sessions[i+1:]...)
+				break
+			}
+		}
+		if len(sm.userToSessions[userID]) == 0 {
+			delete(sm.userToSessions, userID)
+		}
+	}
+
 	delete(sm.sessions, sessionID)
 	for clientID, sid := range sm.clientToSession {
 		if sid == sessionID {
@@ -118,6 +173,20 @@ func (sm *SessionManager) RemoveSessionByClientID(clientID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if sessionID, exists := sm.clientToSession[clientID]; exists {
+		session, exists := sm.sessions[sessionID]
+		if exists {
+			userID := session.UserID
+			sessions := sm.userToSessions[userID]
+			for i, sid := range sessions {
+				if sid == sessionID {
+					sm.userToSessions[userID] = append(sessions[:i], sessions[i+1:]...)
+					break
+				}
+			}
+			if len(sm.userToSessions[userID]) == 0 {
+				delete(sm.userToSessions, userID)
+			}
+		}
 		delete(sm.sessions, sessionID)
 		delete(sm.clientToSession, clientID)
 	}
@@ -151,6 +220,77 @@ func (sm *SessionManager) GetSessionCount() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return len(sm.sessions)
+}
+
+func (sm *SessionManager) GetUserDeviceCount(userID string) int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	count := 0
+	for _, sessionID := range sm.userToSessions[userID] {
+		if _, exists := sm.sessions[sessionID]; exists {
+			count++
+		}
+	}
+	return count
+}
+
+func (sm *SessionManager) Subscribe(clientID string, eventTypes []string) bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sessionID, exists := sm.clientToSession[clientID]
+	if !exists {
+		return false
+	}
+	if session, exists := sm.sessions[sessionID]; exists {
+		session.Subscribed = true
+		if len(eventTypes) > 0 {
+			session.EventTypes = eventTypes
+		} else {
+			session.EventTypes = []string{"progress", "library"}
+		}
+		return true
+	}
+	return false
+}
+
+func (sm *SessionManager) Unsubscribe(clientID string) bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sessionID, exists := sm.clientToSession[clientID]
+	if !exists {
+		return false
+	}
+	if session, exists := sm.sessions[sessionID]; exists {
+		session.Subscribed = false
+		session.EventTypes = nil
+		return true
+	}
+	return false
+}
+
+func (sm *SessionManager) GetSubscribedClients() []string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	clients := make([]string, 0)
+	for clientID, sessionID := range sm.clientToSession {
+		if session, exists := sm.sessions[sessionID]; exists && session.Subscribed {
+			clients = append(clients, clientID)
+		}
+	}
+	return clients
+}
+
+func (sm *SessionManager) IsSubscribed(clientID string) bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	sessionID, exists := sm.clientToSession[clientID]
+	if !exists {
+		return false
+	}
+	if session, exists := sm.sessions[sessionID]; exists {
+		return session.Subscribed
+	}
+	return false
 }
 
 func generateSessionID(deviceName, deviceType string) string {

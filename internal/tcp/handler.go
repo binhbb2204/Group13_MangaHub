@@ -52,11 +52,20 @@ func HandleConnection(client *Client, manager *ClientManager, removeClient func(
 			continue
 		}
 
+		// Increment messages received counter
+		if session, ok := sessionMgr.GetSessionByClientID(client.ID); ok {
+			sessionMgr.IncrementMessagesReceived(session.SessionID)
+		}
+
 		if err := routeMessage(client, msg, log, br, sessionMgr, heartbeatMgr); err != nil {
 			log.Error("message_handling_error",
 				"error", err.Error(),
 				"message_type", msg.Type)
 			SendError(client, err)
+		}
+
+		if session, ok := sessionMgr.GetSessionByClientID(client.ID); ok {
+			sessionMgr.IncrementMessagesSent(session.SessionID)
 		}
 	}
 }
@@ -77,8 +86,12 @@ func routeMessage(client *Client, msg *Message, log *logger.Logger, br *bridge.B
 		return handleHeartbeat(client, msg.Payload, log, heartbeatMgr)
 	case "status_request":
 		return handleStatusRequest(client, log, sessionMgr, heartbeatMgr)
+	case "subscribe_updates":
+		return handleSubscribeUpdates(client, msg.Payload, log, sessionMgr)
+	case "unsubscribe_updates":
+		return handleUnsubscribeUpdates(client, log, sessionMgr)
 	case "sync_progress":
-		return handleSyncProgress(client, msg.Payload, log, br)
+		return handleSyncProgress(client, msg.Payload, log, br, sessionMgr)
 	case "get_library":
 		return handleGetLibrary(client, msg.Payload, log)
 	case "get_progress":
@@ -145,7 +158,7 @@ func handleAuth(client *Client, payload json.RawMessage, log *logger.Logger, br 
 	return nil
 }
 
-func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Logger, br *bridge.Bridge) error {
+func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Logger, br *bridge.Bridge, sessionMgr *SessionManager) error {
 	if !client.Authenticated {
 		authErr := NewAuthNotAuthenticatedError()
 		SendError(client, authErr)
@@ -185,8 +198,9 @@ func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Log
 	}
 
 	var exists bool
-	checkQuery := `SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)`
-	err := database.DB.QueryRow(checkQuery, syncPayload.MangaID).Scan(&exists)
+	var mangaTitle string
+	checkQuery := `SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?), COALESCE((SELECT title FROM manga WHERE id = ?), '')`
+	err := database.DB.QueryRow(checkQuery, syncPayload.MangaID, syncPayload.MangaID).Scan(&exists, &mangaTitle)
 	if err != nil {
 		dbErr := NewDatabaseQueryError(err)
 		log.Error("database_error_checking_manga", "error", err.Error(), "manga_id", syncPayload.MangaID)
@@ -227,6 +241,10 @@ func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Log
 		"manga_id", syncPayload.MangaID,
 		"chapter", syncPayload.CurrentChapter,
 		"status", status)
+
+	if session, ok := sessionMgr.GetSessionByClientID(client.ID); ok {
+		sessionMgr.UpdateLastSyncWithTitle(session.SessionID, syncPayload.MangaID, mangaTitle, syncPayload.CurrentChapter)
+	}
 
 	if br != nil {
 		br.NotifyProgressUpdate(bridge.ProgressUpdateEvent{
@@ -604,15 +622,28 @@ func handleStatusRequest(client *Client, log *logger.Logger, sessionMgr *Session
 
 	uptime := int64(time.Since(session.ConnectedAt).Seconds())
 
+	deviceCount := sessionMgr.GetUserDeviceCount(client.UserID)
+
+	var lastSyncInfo *LastSyncInfo
+	if !session.LastSyncTime.IsZero() && session.LastSyncManga != "" {
+		lastSyncInfo = &LastSyncInfo{
+			MangaID:    session.LastSyncManga,
+			MangaTitle: session.LastSyncMangaTitle,
+			Chapter:    session.LastSyncChapter,
+			Timestamp:  session.LastSyncTime.Format(time.RFC3339),
+		}
+	}
+
 	statusPayload := StatusResponsePayload{
 		ConnectionStatus: "active",
 		ServerAddress:    client.Conn.LocalAddr().String(),
 		Uptime:           uptime,
 		LastHeartbeat:    lastHeartbeatStr,
 		SessionID:        session.SessionID,
-		DevicesOnline:    1,
+		DevicesOnline:    deviceCount,
 		MessagesSent:     session.MessagesSent,
 		MessagesReceived: session.MessagesReceived,
+		LastSync:         lastSyncInfo,
 		NetworkQuality:   quality,
 		RTT:              int64(rtt.Milliseconds()),
 	}
@@ -628,5 +659,57 @@ func handleStatusRequest(client *Client, log *logger.Logger, sessionMgr *Session
 	if err != nil {
 		return NewNetworkWriteError(err)
 	}
+	return nil
+}
+
+func handleSubscribeUpdates(client *Client, payload json.RawMessage, log *logger.Logger, sessionMgr *SessionManager) error {
+	if !client.Authenticated {
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
+	}
+
+	var subscribePayload SubscribeUpdatesPayload
+	if err := json.Unmarshal(payload, &subscribePayload); err != nil {
+		protoErr := NewProtocolInvalidPayloadError("Invalid subscribe payload")
+		SendError(client, protoErr)
+		return protoErr
+	}
+
+	eventTypes := subscribePayload.EventTypes
+	if len(eventTypes) == 0 {
+		eventTypes = []string{"progress", "library"}
+	}
+
+	if !sessionMgr.Subscribe(client.ID, eventTypes) {
+		bizErr := NewProtocolInvalidPayloadError("Failed to subscribe")
+		SendError(client, bizErr)
+		return bizErr
+	}
+
+	log.Info("client_subscribed",
+		"user_id", client.UserID,
+		"event_types", eventTypes)
+
+	client.Conn.Write(CreateSuccessMessage("Subscribed to updates"))
+	return nil
+}
+
+func handleUnsubscribeUpdates(client *Client, log *logger.Logger, sessionMgr *SessionManager) error {
+	if !client.Authenticated {
+		authErr := NewAuthNotAuthenticatedError()
+		SendError(client, authErr)
+		return authErr
+	}
+
+	if !sessionMgr.Unsubscribe(client.ID) {
+		bizErr := NewProtocolInvalidPayloadError("Failed to unsubscribe")
+		SendError(client, bizErr)
+		return bizErr
+	}
+
+	log.Info("client_unsubscribed", "user_id", client.UserID)
+
+	client.Conn.Write(CreateSuccessMessage("Unsubscribed from updates"))
 	return nil
 }
