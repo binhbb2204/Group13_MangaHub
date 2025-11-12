@@ -228,10 +228,6 @@ var mangaInfoCmd = &cobra.Command{
 			return err
 		}
 
-		// Support both MAL numeric id and human-friendly slug (e.g., "one-piece")
-		displayID := mangaID
-		resolvedID := mangaID
-		// If not purely numeric, try to resolve by searching title
 		isNumeric := true
 		for _, ch := range mangaID {
 			if ch < '0' || ch > '9' {
@@ -240,29 +236,14 @@ var mangaInfoCmd = &cobra.Command{
 			}
 		}
 		if !isNumeric {
-			q := strings.ReplaceAll(mangaID, "-", " ")
-			searchURL := fmt.Sprintf("%s/manga/search?q=%s&limit=1", serverURL, url.QueryEscape(q))
-			searchRes, err := http.Get(searchURL)
-			if err == nil {
-				defer searchRes.Body.Close()
-				if searchRes.StatusCode == http.StatusOK {
-					var sr struct {
-						Mangas []struct {
-							ID    string `json:"id"`
-							Title string `json:"title"`
-						} `json:"mangas"`
-						Count int `json:"count"`
-					}
-					b, _ := io.ReadAll(searchRes.Body)
-					_ = json.Unmarshal(b, &sr)
-					if sr.Count > 0 && len(sr.Mangas) > 0 {
-						resolvedID = sr.Mangas[0].ID
-					}
-				}
-			}
+			printError(fmt.Sprintf("Invalid manga ID: %s", mangaID))
+			fmt.Println("\nManga ID must be a numeric value.")
+			fmt.Println("\nTo find a manga ID:")
+			fmt.Println("  mangahub manga search \"manga title\"")
+			return fmt.Errorf("invalid manga ID")
 		}
 
-		res, err := http.Get(fmt.Sprintf("%s/manga/info/%s", serverURL, resolvedID))
+		res, err := http.Get(fmt.Sprintf("%s/manga/info/%s", serverURL, mangaID))
 		if err != nil {
 			printError("Failed to get manga info: Server connection error")
 			fmt.Println("Check server status: mangahub server status")
@@ -287,14 +268,27 @@ var mangaInfoCmd = &cobra.Command{
 		}
 
 		var manga struct {
-			ID            string   `json:"id"`
-			Title         string   `json:"title"`
-			Author        string   `json:"author"`
-			Genres        []string `json:"genres"`
-			Status        string   `json:"status"`
-			TotalChapters int      `json:"total_chapters"`
-			Description   string   `json:"description"`
-			CoverURL      string   `json:"cover_url"`
+			ID                string                   `json:"id"`
+			Title             string                   `json:"title"`
+			Author            string                   `json:"author"`
+			Genres            []string                 `json:"genres"`
+			Status            string                   `json:"status"`
+			TotalChapters     int                      `json:"total_chapters"`
+			Description       string                   `json:"description"`
+			CoverURL          string                   `json:"cover_url"`
+			AlternativeTitles map[string]interface{}   `json:"alternative_titles"`
+			StartDate         string                   `json:"start_date"`
+			EndDate           string                   `json:"end_date"`
+			Mean              float64                  `json:"mean"`
+			Rank              int                      `json:"rank"`
+			Popularity        int                      `json:"popularity"`
+			NumListUsers      int                      `json:"num_list_users"`
+			NumScoringUsers   int                      `json:"num_scoring_users"`
+			MediaType         string                   `json:"media_type"`
+			NumVolumes        int                      `json:"num_volumes"`
+			Authors           []map[string]interface{} `json:"authors"`
+			Serialization     []map[string]interface{} `json:"serialization"`
+			Background        string                   `json:"background"`
 		}
 		json.Unmarshal(body, &manga)
 
@@ -314,67 +308,103 @@ var mangaInfoCmd = &cobra.Command{
 		fmt.Printf("│%s%s%s│\n", strings.Repeat(" ", lp), title, strings.Repeat(" ", rp))
 		fmt.Println("└─────────────────────────────────────────────────────────────────────┘")
 
-		// Basic Information
 		fmt.Println("Basic Information:")
-		fmt.Printf("ID: %s\n", displayID)
-		altTitle := manga.Title
-		fmt.Printf("Title: %s\n", altTitle)
-		artist := manga.Author
-		if artist == "" {
-			artist = "-"
+		fmt.Printf("ID: %s\n", mangaID)
+		fmt.Printf("Title: %s\n", manga.Title)
+
+		if manga.AlternativeTitles != nil {
+			if en, ok := manga.AlternativeTitles["en"].(string); ok && en != "" {
+				fmt.Printf("English: %s\n", en)
+			}
+			if ja, ok := manga.AlternativeTitles["ja"].(string); ok && ja != "" {
+				fmt.Printf("Japanese: %s\n", ja)
+			}
 		}
+
 		author := manga.Author
 		if author == "" {
 			author = "-"
 		}
 		fmt.Printf("Author: %s\n", author)
-		fmt.Printf("Artist: %s\n", artist)
+
 		if len(manga.Genres) > 0 {
 			fmt.Printf("Genres: %s\n", strings.Join(manga.Genres, ", "))
 		} else {
 			fmt.Println("Genres: -")
 		}
+
 		status := manga.Status
 		if status == "" {
 			status = "-"
 		}
 		fmt.Printf("Status: %s\n", status)
-		fmt.Println("Year: -")
 
-		// Progress
-		fmt.Println("Progress:")
-		if manga.TotalChapters > 0 {
-			fmt.Printf("Total Chapters: %d\n", manga.TotalChapters)
-		} else {
-			fmt.Println("Total Chapters: Ongoing")
+		mediaType := manga.MediaType
+		if mediaType == "" {
+			mediaType = "-"
 		}
-		fmt.Println("Total Volumes: -")
-		fmt.Println("Serialization: -")
-		fmt.Println("Publisher: -")
-		fmt.Println("Your Status: -")
-		fmt.Println("Current Chapter: -")
-		fmt.Println("Last Updated: -")
-		fmt.Println("Started Reading: -")
-		fmt.Println("Personal Rating: -")
+		fmt.Printf("Type: %s\n", mediaType)
 
-		// Description
+		if manga.StartDate != "" {
+			fmt.Printf("Start Date: %s\n", manga.StartDate)
+		}
+		if manga.EndDate != "" {
+			fmt.Printf("End Date: %s\n", manga.EndDate)
+		}
+
+		fmt.Println("\nStatistics:")
+		if manga.Mean > 0 {
+			fmt.Printf("Score: %.2f\n", manga.Mean)
+		}
+		if manga.Rank > 0 {
+			fmt.Printf("Ranked: #%d\n", manga.Rank)
+		}
+		if manga.Popularity > 0 {
+			fmt.Printf("Popularity: #%d\n", manga.Popularity)
+		}
+		if manga.NumListUsers > 0 {
+			fmt.Printf("Members: %d\n", manga.NumListUsers)
+		}
+
+		fmt.Println("\nPublication:")
+		if manga.TotalChapters > 0 {
+			fmt.Printf("Chapters: %d\n", manga.TotalChapters)
+		} else {
+			fmt.Println("Chapters: Unknown")
+		}
+		if manga.NumVolumes > 0 {
+			fmt.Printf("Volumes: %d\n", manga.NumVolumes)
+		} else {
+			fmt.Println("Volumes: Unknown")
+		}
+
+		if len(manga.Serialization) > 0 {
+			if node, ok := manga.Serialization[0]["node"].(map[string]interface{}); ok {
+				if name, ok := node["name"].(string); ok && name != "" {
+					fmt.Printf("Serialization: %s\n", name)
+				}
+			}
+		}
+
 		if manga.Description != "" {
-			fmt.Println("Description:")
+			fmt.Println("\nSynopsis:")
 			fmt.Println(wrapText(manga.Description, 80))
 		}
 
-		// External Links
-		fmt.Println("External Links:")
+		if manga.Background != "" {
+			fmt.Println("\nBackground:")
+			fmt.Println(wrapText(manga.Background, 80))
+		}
+
+		fmt.Println("\nExternal Links:")
 		if manga.ID != "" {
 			fmt.Printf("MyAnimeList: https://myanimelist.net/manga/%s\n", manga.ID)
 		}
 		fmt.Printf("MangaDex (search): https://mangadex.org/titles?q=%s\n", url.QueryEscape(manga.Title))
 
-		// Actions
-		fmt.Println("Actions:")
-		fmt.Printf("Update Progress: mangahub progress update --manga-id %s --chapter <num>\n", displayID)
-		fmt.Printf("Rate/Review: mangahub library update --manga-id %s --rating <1-10>\n", displayID)
-		fmt.Printf("Remove: mangahub library remove --manga-id %s\n", displayID)
+		fmt.Println("\nActions:")
+		fmt.Printf("Add to Library: mangahub library add --manga-id %s --status reading\n", mangaID)
+		fmt.Printf("Update Progress: mangahub progress update --manga-id %s --chapter <num>\n", mangaID)
 		fmt.Println()
 
 		return nil
@@ -528,10 +558,6 @@ var mangaFeaturedCmd = &cobra.Command{
 			} `json:"sections"`
 		}
 		json.Unmarshal(body, &result)
-
-		fmt.Println("\n" + strings.Repeat("=", 80))
-		fmt.Println("  📚 FEATURED MANGA FOR HOMEPAGE")
-		fmt.Println(strings.Repeat("=", 80))
 
 		for _, section := range result.Sections {
 			if len(section.Mangas) == 0 {

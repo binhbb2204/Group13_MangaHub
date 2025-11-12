@@ -194,9 +194,6 @@ func (h *Handler) GetMangaInfo(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
-
-	// If the provided id is not purely numeric, treat it as a slug/name and resolve via search
 	isNumeric := true
 	for _, ch := range mangaID {
 		if ch < '0' || ch > '9' {
@@ -204,23 +201,14 @@ func (h *Handler) GetMangaInfo(c *gin.Context) {
 			break
 		}
 	}
-
-	resolvedID := mangaID
 	if !isNumeric {
-		q := strings.ReplaceAll(mangaID, "-", " ")
-		results, err := h.externalSource.Search(ctx, q, 1, 0)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if len(results) == 0 || results[0].ID == "" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found"})
-			return
-		}
-		resolvedID = results[0].ID
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Manga ID must be numeric"})
+		return
 	}
 
-	manga, err := h.externalSource.GetMangaByID(ctx, resolvedID)
+	ctx := context.Background()
+
+	manga, err := h.externalSource.GetMangaByID(ctx, mangaID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
