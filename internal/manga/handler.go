@@ -62,9 +62,9 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		return
 	}
 
-	   if req.Limit <= 0 || req.Limit > 100 {
-		   req.Limit = 100
-	   }
+	if req.Limit <= 0 || req.Limit > 100 {
+		req.Limit = 100
+	}
 
 	query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url FROM manga WHERE 1=1`
 	args := []interface{}{}
@@ -458,11 +458,11 @@ func (h *Handler) GetRanking(c *gin.Context) {
 	}
 
 	rankingType := c.DefaultQuery("type", "all")
-	   limitStr := c.DefaultQuery("limit", "100")
-	   limit, err := strconv.Atoi(limitStr)
-	   if err != nil || limit <= 0 || limit > 100 {
-		   limit = 100
-	   }
+	limitStr := c.DefaultQuery("limit", "100")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 || limit > 100 {
+		limit = 100
+	}
 
 	mangas, err := h.fetchRanking(clientID, rankingType, limit)
 	if err != nil {

@@ -51,11 +51,11 @@ var mangaSearchCmd = &cobra.Command{
 			return err
 		}
 
-		   requestLimit := searchLimit
-		   if requestLimit > 100 || requestLimit <= 0 {
-			   requestLimit = 100
-		   }
-		   searchURL := fmt.Sprintf("%s/manga/search?q=%s&limit=%d", serverURL, url.QueryEscape(query), requestLimit)
+		requestLimit := searchLimit
+		if requestLimit > 100 || requestLimit <= 0 {
+			requestLimit = 100
+		}
+		searchURL := fmt.Sprintf("%s/manga/search?q=%s&limit=%d", serverURL, url.QueryEscape(query), requestLimit)
 
 		res, err := http.Get(searchURL)
 		if err != nil {
@@ -722,8 +722,8 @@ var mangaRankingCmd = &cobra.Command{
 				chapters = fmt.Sprintf("%d", manga.NumChapters)
 			}
 
-			   fmt.Printf("│ %-19d │ %-20s │ %-20s │ %-8s │ %-11s │\n",
-				   manga.ID, title, author, status, chapters)
+			fmt.Printf("│ %-19d │ %-20s │ %-20s │ %-8s │ %-11s │\n",
+				manga.ID, title, author, status, chapters)
 		}
 
 		fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
