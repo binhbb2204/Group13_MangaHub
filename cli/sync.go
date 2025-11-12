@@ -260,41 +260,21 @@ var syncStatusCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Println("  Connection: ✓ Active")
-		fmt.Printf("  Server: %s\n", connInfo.Server)
-
-		uptime := time.Since(connInfo.ConnectedAt)
-		fmt.Printf("  Uptime: %s\n", formatDuration(uptime))
-
-		timeSinceHeartbeat := time.Since(connInfo.LastHeartbeat)
-		fmt.Printf("  Last heartbeat: %s ago\n", formatDuration(timeSinceHeartbeat))
-
-		fmt.Println()
-		fmt.Println("Session Info:")
-		cfg, _ := config.Load()
-		if cfg != nil {
-			fmt.Printf("  User: %s\n", cfg.User.Username)
+		cfg, err := config.Load()
+		if err != nil {
+			displayCachedStatus(connInfo, cfg)
+			return nil
 		}
-		fmt.Printf("  Session ID: %s\n", connInfo.SessionID)
-		fmt.Printf("  Device: %s (%s)\n", connInfo.DeviceName, connInfo.DeviceType)
 
-		fmt.Println()
-		fmt.Println("Sync Statistics:")
-		fmt.Println("  Messages sent: N/A")
-		fmt.Println("  Messages received: N/A")
-		fmt.Println("  Last sync: N/A")
-		fmt.Println("  Sync conflicts: 0")
-
-		if timeSinceHeartbeat < 30*time.Second {
-			fmt.Println()
-			fmt.Println("Network Quality: Good")
-		} else if timeSinceHeartbeat < 60*time.Second {
-			fmt.Println()
-			fmt.Println("Network Quality: Fair")
-		} else {
-			fmt.Println()
-			fmt.Println("Network Quality: Poor (connection may be stale)")
+		liveStatus, err := queryServerStatus(cfg, connInfo)
+		if err != nil {
+			fmt.Printf("  ⚠ Unable to fetch live status: %s\n", err.Error())
+			fmt.Println("  Showing cached information:")
+			displayCachedStatus(connInfo, cfg)
+			return nil
 		}
+
+		displayLiveStatus(liveStatus, cfg)
 		return nil
 	},
 }
@@ -304,20 +284,25 @@ var syncMonitorCmd = &cobra.Command{
 	Short: "Monitor real-time sync updates",
 	Long:  `Display real-time synchronization updates as they happen across devices.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("Monitoring real-time sync updates... (Press Ctrl+C to exit)")
-		fmt.Println()
-		fmt.Println("Real-time monitoring is not yet fully implemented.")
-		fmt.Println()
-		fmt.Println("This feature will display:")
-		fmt.Println("  - Progress updates from other devices")
-		fmt.Println("  - Library changes")
-		fmt.Println("  - Conflict resolutions")
-		fmt.Println()
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-		<-sigChan
-		fmt.Println("\nMonitoring stopped")
-		return nil
+		active, _, err := config.IsConnectionActive()
+		if err != nil {
+			printError("Failed to check connection status")
+			return err
+		}
+
+		if !active {
+			printError("Not connected to sync server")
+			fmt.Println("Run: mangahub sync connect")
+			return fmt.Errorf("no active connection")
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			printError("Failed to load configuration")
+			return err
+		}
+
+		return startMonitoring(cfg)
 	},
 }
 
@@ -407,6 +392,354 @@ func formatDuration(d time.Duration) string {
 		seconds := int(d.Seconds()) % 60
 		return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
 	}
+}
+
+func queryServerStatus(cfg *config.Config, connInfo *config.ConnectionInfo) (*statusResponse, error) {
+	serverAddr := net.JoinHostPort(cfg.Server.Host, fmt.Sprintf("%d", cfg.Server.TCPPort))
+
+	conn, err := net.DialTimeout("tcp", serverAddr, 5*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect: %w", err)
+	}
+	defer conn.Close()
+
+	authMsg := map[string]interface{}{
+		"type": "auth",
+		"payload": map[string]string{
+			"token": cfg.User.Token,
+		},
+	}
+	authJSON, _ := json.Marshal(authMsg)
+	authJSON = append(authJSON, '\n')
+
+	if _, err := conn.Write(authJSON); err != nil {
+		return nil, fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("failed to read auth response: %w", err)
+	}
+
+	var authResponse map[string]interface{}
+	if err := json.Unmarshal([]byte(response), &authResponse); err != nil {
+		return nil, fmt.Errorf("invalid auth response: %w", err)
+	}
+
+	if authResponse["type"] != "success" {
+		return nil, fmt.Errorf("authentication failed")
+	}
+
+	statusMsg := map[string]interface{}{
+		"type":    "status_request",
+		"payload": map[string]interface{}{},
+	}
+	statusJSON, _ := json.Marshal(statusMsg)
+	statusJSON = append(statusJSON, '\n')
+
+	if _, err := conn.Write(statusJSON); err != nil {
+		return nil, fmt.Errorf("failed to send status request: %w", err)
+	}
+
+	response, err = reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("failed to read status response: %w", err)
+	}
+
+	var statusResp statusResponse
+	if err := json.Unmarshal([]byte(response), &statusResp); err != nil {
+		return nil, fmt.Errorf("failed to parse status response: %w", err)
+	}
+
+	return &statusResp, nil
+}
+
+// statusResponse matches the server's status message format
+type statusResponse struct {
+	Type    string `json:"type"`
+	Payload struct {
+		ConnectionStatus string `json:"connection_status"`
+		ServerAddress    string `json:"server_address"`
+		Uptime           int64  `json:"uptime_seconds"`
+		LastHeartbeat    string `json:"last_heartbeat"`
+		SessionID        string `json:"session_id"`
+		DevicesOnline    int    `json:"devices_online"`
+		MessagesSent     int64  `json:"messages_sent"`
+		MessagesReceived int64  `json:"messages_received"`
+		LastSync         *struct {
+			MangaID    string `json:"manga_id"`
+			MangaTitle string `json:"manga_title"`
+			Chapter    int    `json:"chapter"`
+			Timestamp  string `json:"timestamp"`
+		} `json:"last_sync,omitempty"`
+		NetworkQuality string `json:"network_quality"`
+		RTT            int64  `json:"rtt_ms"`
+	} `json:"payload"`
+}
+
+func displayLiveStatus(status *statusResponse, cfg *config.Config) {
+	fmt.Println("  Connection: ✓ Active")
+	fmt.Printf("  Server: %s\n", status.Payload.ServerAddress)
+
+	uptime := time.Duration(status.Payload.Uptime) * time.Second
+	fmt.Printf("  Uptime: %s\n", formatDuration(uptime))
+
+	if status.Payload.LastHeartbeat != "" {
+		lastHeartbeat, err := time.Parse(time.RFC3339, status.Payload.LastHeartbeat)
+		if err == nil {
+			timeSince := time.Since(lastHeartbeat)
+			fmt.Printf("  Last heartbeat: %s ago\n", formatDuration(timeSince))
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("Session Info:")
+	if cfg != nil {
+		fmt.Printf("  User: %s\n", cfg.User.Username)
+	}
+	fmt.Printf("  Session ID: %s\n", status.Payload.SessionID)
+	fmt.Printf("  Devices online: %d\n", status.Payload.DevicesOnline)
+
+	fmt.Println()
+	fmt.Println("Sync Statistics:")
+	fmt.Printf("  Messages sent: %d\n", status.Payload.MessagesSent)
+	fmt.Printf("  Messages received: %d\n", status.Payload.MessagesReceived)
+
+	if status.Payload.LastSync != nil {
+		lastSyncTime, err := time.Parse(time.RFC3339, status.Payload.LastSync.Timestamp)
+		if err == nil {
+			timeSince := time.Since(lastSyncTime)
+			fmt.Printf("  Last sync: %s ago (%s ch. %d)\n",
+				formatDuration(timeSince),
+				status.Payload.LastSync.MangaTitle,
+				status.Payload.LastSync.Chapter)
+		}
+	} else {
+		fmt.Println("  Last sync: N/A")
+	}
+	fmt.Println("  Sync conflicts: 0")
+
+	fmt.Println()
+	fmt.Printf("Network Quality: %s", status.Payload.NetworkQuality)
+	if status.Payload.RTT > 0 {
+		fmt.Printf(" (RTT: %dms)", status.Payload.RTT)
+	}
+	fmt.Println()
+}
+
+func displayCachedStatus(connInfo *config.ConnectionInfo, cfg *config.Config) {
+	fmt.Println("  Connection: ✓ Active (cached)")
+	fmt.Printf("  Server: %s\n", connInfo.Server)
+
+	uptime := time.Since(connInfo.ConnectedAt)
+	fmt.Printf("  Uptime: %s\n", formatDuration(uptime))
+
+	timeSinceHeartbeat := time.Since(connInfo.LastHeartbeat)
+	fmt.Printf("  Last heartbeat: %s ago\n", formatDuration(timeSinceHeartbeat))
+
+	fmt.Println()
+	fmt.Println("Session Info:")
+	if cfg != nil {
+		fmt.Printf("  User: %s\n", cfg.User.Username)
+	}
+	fmt.Printf("  Session ID: %s\n", connInfo.SessionID)
+	fmt.Printf("  Device: %s (%s)\n", connInfo.DeviceName, connInfo.DeviceType)
+
+	fmt.Println()
+	fmt.Println("Sync Statistics:")
+	fmt.Println("  Messages sent: N/A")
+	fmt.Println("  Messages received: N/A")
+	fmt.Println("  Last sync: N/A")
+	fmt.Println("  Sync conflicts: 0")
+
+	fmt.Println()
+	if timeSinceHeartbeat < 30*time.Second {
+		fmt.Println("Network Quality: Good")
+	} else if timeSinceHeartbeat < 60*time.Second {
+		fmt.Println("Network Quality: Fair")
+	} else {
+		fmt.Println("Network Quality: Poor (connection may be stale)")
+	}
+}
+
+func startMonitoring(cfg *config.Config) error {
+	serverAddr := net.JoinHostPort(cfg.Server.Host, fmt.Sprintf("%d", cfg.Server.TCPPort))
+
+	fmt.Printf("Connecting to sync server at %s...\n", serverAddr)
+	conn, err := net.DialTimeout("tcp", serverAddr, 10*time.Second)
+	if err != nil {
+		printError(fmt.Sprintf("Failed to connect: %s", err.Error()))
+		return err
+	}
+	defer conn.Close()
+
+	authMsg := map[string]interface{}{
+		"type": "auth",
+		"payload": map[string]string{
+			"token": cfg.User.Token,
+		},
+	}
+	authJSON, _ := json.Marshal(authMsg)
+	authJSON = append(authJSON, '\n')
+
+	if _, err := conn.Write(authJSON); err != nil {
+		printError("Failed to send authentication")
+		return err
+	}
+
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		printError("Failed to receive authentication response")
+		return err
+	}
+
+	var authResponse map[string]interface{}
+	if err := json.Unmarshal([]byte(response), &authResponse); err != nil {
+		printError("Invalid authentication response")
+		return err
+	}
+
+	if authResponse["type"] != "success" {
+		printError("Authentication failed")
+		return fmt.Errorf("authentication rejected by server")
+	}
+
+	subscribeMsg := map[string]interface{}{
+		"type": "subscribe_updates",
+		"payload": map[string]interface{}{
+			"event_types": []string{},
+		},
+	}
+	subscribeJSON, _ := json.Marshal(subscribeMsg)
+	subscribeJSON = append(subscribeJSON, '\n')
+
+	if _, err := conn.Write(subscribeJSON); err != nil {
+		printError("Failed to send subscribe request")
+		return err
+	}
+
+	response, err = reader.ReadString('\n')
+	if err != nil {
+		printError("Failed to receive subscribe response")
+		return err
+	}
+
+	var subscribeResponse map[string]interface{}
+	if err := json.Unmarshal([]byte(response), &subscribeResponse); err != nil {
+		printError("Invalid subscribe response")
+		return err
+	}
+
+	if subscribeResponse["type"] == "error" {
+		printError("Subscription failed")
+		return fmt.Errorf("subscription rejected by server")
+	}
+
+	printSuccess("Subscribed to real-time updates")
+	fmt.Println("Monitoring sync events... (Press Ctrl+C to exit)")
+	fmt.Println()
+
+	return monitorEventLoop(conn, reader)
+}
+
+func monitorEventLoop(conn net.Conn, reader *bufio.Reader) error {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	eventChan := make(chan string, 10)
+	errChan := make(chan error, 1)
+
+	go func() {
+		for {
+			response, err := reader.ReadString('\n')
+			if err != nil {
+				errChan <- err
+				return
+			}
+			eventChan <- response
+		}
+	}()
+
+	for {
+		select {
+		case <-sigChan:
+			fmt.Println("\n\nStopping monitor...")
+			unsubscribeMsg := map[string]interface{}{
+				"type":    "unsubscribe_updates",
+				"payload": map[string]interface{}{},
+			}
+			unsubscribeJSON, _ := json.Marshal(unsubscribeMsg)
+			unsubscribeJSON = append(unsubscribeJSON, '\n')
+			conn.Write(unsubscribeJSON)
+			time.Sleep(100 * time.Millisecond)
+			fmt.Println("✓ Monitoring stopped")
+			return nil
+
+		case err := <-errChan:
+			printError(fmt.Sprintf("Connection lost: %s", err.Error()))
+			return err
+
+		case response := <-eventChan:
+			displayEvent(response)
+		}
+	}
+}
+
+func displayEvent(jsonMsg string) {
+	var msg map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		return
+	}
+
+	msgType, ok := msg["type"].(string)
+	if !ok || msgType != "update_event" {
+		return
+	}
+
+	payload, ok := msg["payload"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	timestamp, _ := payload["timestamp"].(string)
+	direction, _ := payload["direction"].(string)
+	action, _ := payload["action"].(string)
+	mangaTitle, _ := payload["manga_title"].(string)
+	chapter, _ := payload["chapter"].(float64)
+
+	timeStr := formatTimestamp(timestamp)
+	directionStr := formatDirection(direction)
+
+	fmt.Printf("[%s] %s %s: %s (Chapter %d)\n",
+		timeStr,
+		directionStr,
+		action,
+		mangaTitle,
+		int(chapter))
+
+	conflict, hasConflict := payload["conflict"].(string)
+	if hasConflict && conflict != "" {
+		fmt.Printf("         ⚠ %s\n", conflict)
+	}
+}
+
+func formatTimestamp(timestamp string) string {
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return timestamp
+	}
+	return t.Format("15:04:05")
+}
+
+func formatDirection(direction string) string {
+	if direction == "incoming" {
+		return "←"
+	} else if direction == "outgoing" {
+		return "→"
+	}
+	return "•"
 }
 
 func init() {

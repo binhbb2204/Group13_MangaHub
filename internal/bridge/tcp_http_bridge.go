@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/metrics"
@@ -14,20 +15,44 @@ type TCPClient struct {
 	UserID string
 }
 
+type UDPBroadcaster interface {
+	BroadcastToUser(userID string, event BroadcastEvent)
+}
+
+type BroadcastEvent struct {
+	UserID    string
+	EventType string
+	Data      interface{}
+}
+
 type Bridge struct {
-	logger      *logger.Logger
-	clients     map[string][]*TCPClient
-	clientsLock sync.RWMutex
-	eventChan   chan Event
-	stopChan    chan struct{}
+	logger         *logger.Logger
+	clients        map[string][]*TCPClient
+	udpBroadcaster UDPBroadcaster
+	sessionManager SessionManager
+	clientsLock    sync.RWMutex
+	eventChan      chan Event
+	stopChan       chan struct{}
+}
+
+type SessionManager interface {
+	GetSubscribedClients() []string
+	IsSubscribed(clientID string) bool
+	GetSessionByClientID(clientID string) (any, bool)
+}
+
+type Session interface {
+	GetUserID() string
+	GetDeviceType() string
 }
 
 func NewBridge(log *logger.Logger) *Bridge {
 	return &Bridge{
-		logger:    log,
-		clients:   make(map[string][]*TCPClient),
-		eventChan: make(chan Event, 100),
-		stopChan:  make(chan struct{}),
+		logger:         log,
+		clients:        make(map[string][]*TCPClient),
+		udpBroadcaster: nil,
+		eventChan:      make(chan Event, 100),
+		stopChan:       make(chan struct{}),
 	}
 }
 
@@ -39,6 +64,20 @@ func (b *Bridge) Start() {
 func (b *Bridge) Stop() {
 	b.logger.Info("bridge_stopping")
 	close(b.stopChan)
+}
+
+func (b *Bridge) SetUDPBroadcaster(broadcaster UDPBroadcaster) {
+	b.clientsLock.Lock()
+	defer b.clientsLock.Unlock()
+	b.udpBroadcaster = broadcaster
+	b.logger.Info("udp_broadcaster_set")
+}
+
+func (b *Bridge) SetSessionManager(sm SessionManager) {
+	b.clientsLock.Lock()
+	defer b.clientsLock.Unlock()
+	b.sessionManager = sm
+	b.logger.Info("session_manager_set")
 }
 
 func (b *Bridge) RegisterTCPClient(conn net.Conn, userID string) {
@@ -101,6 +140,15 @@ func (b *Bridge) NotifyProgressUpdate(event ProgressUpdateEvent) {
 		"manga_id", event.MangaID,
 		"chapter_id", event.ChapterID,
 	)
+
+	b.broadcastUpdateEvent(event.UserID, "updated", event.MangaID, event.ChapterID, "outgoing")
+
+	if b.udpBroadcaster != nil {
+		b.udpBroadcaster.BroadcastToUser(event.UserID, BroadcastEvent{
+			EventType: "progress_update",
+			Data:      data,
+		})
+	}
 }
 
 func (b *Bridge) NotifyLibraryUpdate(event LibraryUpdateEvent) {
@@ -120,6 +168,78 @@ func (b *Bridge) NotifyLibraryUpdate(event LibraryUpdateEvent) {
 		"manga_id", event.MangaID,
 		"action", event.Action,
 	)
+
+	b.broadcastUpdateEvent(event.UserID, event.Action, event.MangaID, 0, "outgoing")
+
+	if b.udpBroadcaster != nil {
+		b.udpBroadcaster.BroadcastToUser(event.UserID, BroadcastEvent{
+			EventType: "library_update",
+			Data:      data,
+		})
+	}
+}
+
+func (b *Bridge) broadcastUpdateEvent(userID, action, mangaTitle string, chapter int, direction string) {
+	if b.sessionManager == nil {
+		return
+	}
+
+	subscribedClients := b.sessionManager.GetSubscribedClients()
+	if len(subscribedClients) == 0 {
+		return
+	}
+
+	b.clientsLock.RLock()
+	clients := b.clients[userID]
+	b.clientsLock.RUnlock()
+
+	for _, clientID := range subscribedClients {
+		if !b.sessionManager.IsSubscribed(clientID) {
+			continue
+		}
+
+		sessionAny, ok := b.sessionManager.GetSessionByClientID(clientID)
+		if !ok {
+			continue
+		}
+
+		session, ok := sessionAny.(Session)
+		if !ok {
+			continue
+		}
+
+		if session.GetUserID() != userID {
+			continue
+		}
+
+		updateEvent := map[string]interface{}{
+			"type": "update_event",
+			"payload": map[string]interface{}{
+				"timestamp":   generateTimestamp(),
+				"direction":   direction,
+				"action":      action,
+				"manga_title": mangaTitle,
+				"chapter":     chapter,
+				"device_type": session.GetDeviceType(),
+			},
+		}
+
+		messageBytes, err := json.Marshal(updateEvent)
+		if err != nil {
+			b.logger.Error("failed_to_marshal_update_event", "error", err.Error())
+			continue
+		}
+
+		message := string(messageBytes) + "\n"
+
+		for _, client := range clients {
+			if _, err := client.Conn.Write([]byte(message)); err != nil {
+				b.logger.Warn("failed_to_send_update_event",
+					"user_id", userID,
+					"error", err.Error())
+			}
+		}
+	}
 }
 
 func (b *Bridge) BroadcastToUser(userID string, event Event) {
@@ -198,4 +318,8 @@ func (b *Bridge) processEvents() {
 			return
 		}
 	}
+}
+
+func generateTimestamp() string {
+	return time.Now().Format(time.RFC3339)
 }

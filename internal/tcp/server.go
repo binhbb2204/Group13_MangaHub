@@ -20,12 +20,16 @@ type Server struct {
 }
 
 func NewServer(port string, br *bridge.Bridge) *Server {
+	sm := NewSessionManager()
+	if br != nil {
+		br.SetSessionManager(sm.AsInterface())
+	}
 	return &Server{
 		Port:             port,
 		clientManager:    NewClientManager(),
 		log:              logger.WithContext("component", "tcp_server"),
 		bridge:           br,
-		sessionManager:   NewSessionManager(),
+		sessionManager:   sm,
 		heartbeatManager: NewHeartbeatManager(DefaultHeartbeatConfig()),
 	}
 }
