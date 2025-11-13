@@ -32,6 +32,10 @@ func (cs *ClientSession) GetDeviceType() string {
 	return cs.DeviceType
 }
 
+func (cs *ClientSession) GetDeviceName() string {
+	return cs.DeviceName
+}
+
 type SessionManager struct {
 	sessions        map[string]*ClientSession
 	clientToSession map[string]string

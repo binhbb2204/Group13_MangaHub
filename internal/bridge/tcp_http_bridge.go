@@ -44,6 +44,7 @@ type SessionManager interface {
 type Session interface {
 	GetUserID() string
 	GetDeviceType() string
+	GetDeviceName() string
 }
 
 func NewBridge(log *logger.Logger) *Bridge {
@@ -221,6 +222,7 @@ func (b *Bridge) broadcastUpdateEvent(userID, action, mangaTitle string, chapter
 				"manga_title": mangaTitle,
 				"chapter":     chapter,
 				"device_type": session.GetDeviceType(),
+				"device_name": session.GetDeviceName(),
 			},
 		}
 
