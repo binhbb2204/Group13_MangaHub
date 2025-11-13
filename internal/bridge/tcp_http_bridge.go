@@ -141,7 +141,7 @@ func (b *Bridge) NotifyProgressUpdate(event ProgressUpdateEvent) {
 		"chapter_id", event.ChapterID,
 	)
 
-	b.broadcastUpdateEvent(event.UserID, "updated", event.MangaID, event.ChapterID, "outgoing")
+	b.broadcastUpdateEvent(event.UserID, "updated", event.MangaTitle, event.ChapterID, "outgoing")
 
 	if b.udpBroadcaster != nil {
 		b.udpBroadcaster.BroadcastToUser(event.UserID, BroadcastEvent{
