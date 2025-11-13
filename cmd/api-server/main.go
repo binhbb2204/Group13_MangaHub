@@ -94,13 +94,13 @@ func main() {
 
 	mangaGroup := router.Group("/manga")
 	{
-		mangaGroup.GET("", mangaHandler.SearchManga)       
-		mangaGroup.GET("/all", mangaHandler.GetAllManga)     
-		mangaGroup.GET("/search", mangaHandler.SearchExternal) 
-		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo) 
-		mangaGroup.GET("/:id", mangaHandler.GetMangaByID)      
-		mangaGroup.GET("/featured", mangaHandler.GetFeaturedManga) 
-		mangaGroup.GET("/ranking", mangaHandler.GetRanking) 
+		mangaGroup.GET("", mangaHandler.SearchManga)
+		mangaGroup.GET("/all", mangaHandler.GetAllManga)
+		mangaGroup.GET("/search", mangaHandler.SearchExternal)
+		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo)
+		mangaGroup.GET("/:id", mangaHandler.GetMangaByID)
+		mangaGroup.GET("/featured", mangaHandler.GetFeaturedManga)
+		mangaGroup.GET("/ranking", mangaHandler.GetRanking)
 		// Protected routes
 		protected := mangaGroup.Group("")
 		protected.Use(auth.AuthMiddleware(jwtSecret))
