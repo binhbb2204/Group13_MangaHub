@@ -33,6 +33,7 @@ func init() {
 	rootCmd.AddCommand(libraryCmd)
 	rootCmd.AddCommand(progressCmd)
 	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(notifyCmd)
 
 }
 
