@@ -20,6 +20,7 @@ type Event struct {
 type ProgressUpdateEvent struct {
 	UserID       string    `json:"user_id"`
 	MangaID      string    `json:"manga_id"`
+	MangaTitle   string    `json:"manga_title"`
 	ChapterID    int       `json:"chapter_id"`
 	Status       string    `json:"status"`
 	LastReadDate time.Time `json:"last_read_date"`

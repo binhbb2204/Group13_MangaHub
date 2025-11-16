@@ -12,6 +12,7 @@ bin/
 
 # Output of the go coverage tool
 *.out
+coverage*
 coverage.txt
 coverage.html
 

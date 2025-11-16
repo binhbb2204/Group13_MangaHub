@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/tcp"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 )
 
@@ -141,7 +143,11 @@ func TestEventBroadcasting(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9204", nil)
+	br := bridge.NewBridge(logger.GetLogger())
+	br.Start()
+	defer br.Stop()
+
+	server := tcp.NewServer("9204", br)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -245,7 +251,11 @@ func TestMultipleSubscribers(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9205", nil)
+	br := bridge.NewBridge(logger.GetLogger())
+	br.Start()
+	defer br.Stop()
+
+	server := tcp.NewServer("9205", br)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -332,7 +342,12 @@ func TestEventFilteringByUser(t *testing.T) {
 		t.Fatalf("Failed to insert second test user: %v", err)
 	}
 
-	server := tcp.NewServer("9206", nil)
+	// Initialize bridge for event broadcasting
+	b := bridge.NewBridge(logger.GetLogger())
+	b.Start()
+	defer b.Stop()
+
+	server := tcp.NewServer("9206", b)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -422,7 +437,12 @@ func TestConcurrentMonitoring(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9207", nil)
+	// Initialize bridge for event broadcasting
+	b := bridge.NewBridge(logger.GetLogger())
+	b.Start()
+	defer b.Stop()
+
+	server := tcp.NewServer("9207", b)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -540,7 +560,12 @@ func TestUpdateEventPayloadStructure(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9209", nil)
+	// Initialize bridge for event broadcasting
+	b := bridge.NewBridge(logger.GetLogger())
+	b.Start()
+	defer b.Stop()
+
+	server := tcp.NewServer("9209", b)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
