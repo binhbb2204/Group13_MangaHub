@@ -31,11 +31,16 @@ type Author struct {
 }
 
 type RankingManga struct {
-	ID          int      `json:"id"`
-	Title       string   `json:"title"`
+	ID          int    `json:"id"`
+	Title       string `json:"title"`
+	MainPicture *struct {
+		Medium string `json:"medium"`
+		Large  string `json:"large"`
+	} `json:"main_picture,omitempty"`
 	Status      string   `json:"status"`
 	NumChapters int      `json:"num_chapters"`
 	Authors     []Author `json:"authors"`
+	CoverURL    string   `json:"cover_url,omitempty"`
 }
 
 type RankingList struct {
@@ -344,7 +349,7 @@ func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]Ranki
 	params := url.Values{}
 	params.Add("ranking_type", rankingType)
 	params.Add("limit", fmt.Sprintf("%d", limit))
-	params.Add("fields", "id,title,authors{name,first_name,last_name},status,num_chapters")
+	params.Add("fields", "id,title,main_picture,authors{name,first_name,last_name},status,num_chapters")
 
 	req, err := http.NewRequest("GET", apiURL+"?"+params.Encode(), nil)
 	if err != nil {
@@ -369,7 +374,16 @@ func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]Ranki
 
 	var mangas []RankingManga
 	for _, item := range result.Data {
-		mangas = append(mangas, item.Node)
+		manga := item.Node
+		// Populate cover_url from main_picture
+		if manga.MainPicture != nil {
+			if manga.MainPicture.Large != "" {
+				manga.CoverURL = manga.MainPicture.Large
+			} else {
+				manga.CoverURL = manga.MainPicture.Medium
+			}
+		}
+		mangas = append(mangas, manga)
 	}
 	return mangas, nil
 }
