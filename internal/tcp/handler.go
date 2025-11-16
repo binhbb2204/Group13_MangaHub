@@ -250,6 +250,7 @@ func handleSyncProgress(client *Client, payload json.RawMessage, log *logger.Log
 		br.NotifyProgressUpdate(bridge.ProgressUpdateEvent{
 			UserID:       client.UserID,
 			MangaID:      syncPayload.MangaID,
+			MangaTitle:   mangaTitle,
 			ChapterID:    syncPayload.CurrentChapter,
 			Status:       status,
 			LastReadDate: now,

@@ -44,6 +44,7 @@ type SessionManager interface {
 type Session interface {
 	GetUserID() string
 	GetDeviceType() string
+	GetDeviceName() string
 }
 
 func NewBridge(log *logger.Logger) *Bridge {
@@ -141,7 +142,7 @@ func (b *Bridge) NotifyProgressUpdate(event ProgressUpdateEvent) {
 		"chapter_id", event.ChapterID,
 	)
 
-	b.broadcastUpdateEvent(event.UserID, "updated", event.MangaID, event.ChapterID, "outgoing")
+	b.broadcastUpdateEvent(event.UserID, "updated", event.MangaTitle, event.ChapterID, "outgoing")
 
 	if b.udpBroadcaster != nil {
 		b.udpBroadcaster.BroadcastToUser(event.UserID, BroadcastEvent{
@@ -221,6 +222,7 @@ func (b *Bridge) broadcastUpdateEvent(userID, action, mangaTitle string, chapter
 				"manga_title": mangaTitle,
 				"chapter":     chapter,
 				"device_type": session.GetDeviceType(),
+				"device_name": session.GetDeviceName(),
 			},
 		}
 

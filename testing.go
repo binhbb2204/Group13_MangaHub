@@ -137,7 +137,7 @@ func main() {
 		log.Fatal("Missing MAL_CLIENT_ID in .env")
 	}
 
-	fmt.Println("Fetching featured manga for homepage...\n")
+	fmt.Println("Fetching featured manga for homepage...")
 
 	sections := []struct {
 		label string
