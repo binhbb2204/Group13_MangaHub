@@ -188,7 +188,7 @@ var syncConnectCmd = &cobra.Command{
 		fmt.Println("  mangahub sync status   - View connection status")
 		fmt.Println("  mangahub sync monitor  - Monitor real-time updates")
 
-		maintainConnection(conn, sessionID, cfg)
+		maintainConnection(conn)
 		return nil
 	},
 }
@@ -266,7 +266,7 @@ var syncStatusCmd = &cobra.Command{
 			return nil
 		}
 
-		liveStatus, err := queryServerStatus(cfg, connInfo)
+		liveStatus, err := queryServerStatus(cfg)
 		if err != nil {
 			fmt.Printf("  ⚠ Unable to fetch live status: %s\n", err.Error())
 			fmt.Println("  Showing cached information:")
@@ -306,7 +306,7 @@ var syncMonitorCmd = &cobra.Command{
 	},
 }
 
-func maintainConnection(conn net.Conn, sessionID string, cfg *config.Config) {
+func maintainConnection(conn net.Conn) {
 	defer conn.Close()
 	defer config.ClearActiveConnection()
 
@@ -394,7 +394,7 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
-func queryServerStatus(cfg *config.Config, connInfo *config.ConnectionInfo) (*statusResponse, error) {
+func queryServerStatus(cfg *config.Config) (*statusResponse, error) {
 	serverAddr := net.JoinHostPort(cfg.Server.Host, fmt.Sprintf("%d", cfg.Server.TCPPort))
 
 	conn, err := net.DialTimeout("tcp", serverAddr, 5*time.Second)
@@ -734,12 +734,14 @@ func formatTimestamp(timestamp string) string {
 }
 
 func formatDirection(direction string) string {
-	if direction == "incoming" {
+	switch direction {
+	case "incoming":
 		return "←"
-	} else if direction == "outgoing" {
+	case "outgoing":
 		return "→"
+	default:
+		return "•"
 	}
-	return "•"
 }
 
 func init() {

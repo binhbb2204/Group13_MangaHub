@@ -1,13 +1,11 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -271,13 +269,4 @@ func init() {
 	authCmd.AddCommand(authRegisterCmd)
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
-}
-
-func readPasswordFallback() (string, error) {
-	reader := bufio.NewReader(os.Stdin)
-	password, err := reader.ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(password), nil
 }
