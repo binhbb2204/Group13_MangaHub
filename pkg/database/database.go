@@ -78,6 +78,16 @@ func createTables() error {
         FOREIGN KEY (manga_id) REFERENCES manga(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        from_user_id TEXT NOT NULL,
+        to_user_id TEXT,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_manga_title ON manga(title);
     CREATE INDEX IF NOT EXISTS idx_manga_author ON manga(author);
     CREATE INDEX IF NOT EXISTS idx_user_progress_user ON user_progress(user_id);

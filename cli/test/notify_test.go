@@ -173,7 +173,7 @@ func TestNotifyUnsubscribe(t *testing.T) {
 	}
 
 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	n, err = conn.Read(buffer)
+	_, err = conn.Read(buffer)
 	if err != nil {
 		t.Fatalf("Failed to receive subscribe response: %v", err)
 	}

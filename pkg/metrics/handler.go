@@ -17,5 +17,7 @@ func (h *Handler) Metrics(c *gin.Context) {
 		"broadcasts_total":      GetBroadcasts(),
 		"broadcast_fails_total": GetBroadcastFails(),
 		"active_connections":    GetActiveConnections(),
+		"messages_total":        GetMessages(),
+		"rate_limited_total":    GetRateLimited(),
 	})
 }

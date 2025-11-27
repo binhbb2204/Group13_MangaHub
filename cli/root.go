@@ -34,6 +34,7 @@ func init() {
 	rootCmd.AddCommand(progressCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(notifyCmd)
+	rootCmd.AddCommand(chatCmd)
 
 }
 

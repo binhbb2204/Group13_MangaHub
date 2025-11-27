@@ -25,9 +25,8 @@ func (a concurrentMockAddr) Network() string { return "tcp" }
 func (a concurrentMockAddr) String() string  { return a.s }
 
 type concurrentBufConn struct {
-	buf   bytes.Buffer
-	mu    sync.Mutex
-	index int
+	buf bytes.Buffer
+	mu  sync.Mutex
 }
 
 func (c *concurrentBufConn) Read(p []byte) (int, error) { return 0, nil }

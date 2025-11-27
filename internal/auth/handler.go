@@ -193,7 +193,7 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 
 func validatePasswordStrength(pw string) error {
 	if len(pw) < 8 {
-		return fmt.Errorf("Password too weak: must be at least 8 characters with mixed case and numbers")
+		return fmt.Errorf("password too weak: must be at least 8 characters with mixed case and numbers")
 	}
 	var lower, upper, digit bool
 	for _, r := range pw {
@@ -207,7 +207,7 @@ func validatePasswordStrength(pw string) error {
 		}
 	}
 	if !(lower && upper && digit) {
-		return fmt.Errorf("Password too weak: must be at least 8 characters with mixed case and numbers")
+		return fmt.Errorf("password too weak: must be at least 8 characters with mixed case and numbers")
 	}
 	return nil
 }
