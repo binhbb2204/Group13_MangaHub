@@ -67,7 +67,7 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		return
 	}
 
-	if req.Limit <= 0 || req.Limit > 100 {
+	if req.Limit <= 0 {
 		req.Limit = 100
 	}
 
