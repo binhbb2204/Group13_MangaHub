@@ -606,6 +606,33 @@ func startMonitoring(cfg *config.Config) error {
 		return fmt.Errorf("authentication rejected by server")
 	}
 
+	connectMsg := map[string]interface{}{
+		"type": "connect",
+		"payload": map[string]string{
+			"device_type": "monitor",
+			"device_name": "CLI Monitor",
+		},
+	}
+	connectJSON, _ := json.Marshal(connectMsg)
+	connectJSON = append(connectJSON, '\n')
+
+	if _, err := conn.Write(connectJSON); err != nil {
+		printError("Failed to send connect message")
+		return err
+	}
+
+	response, err = reader.ReadString('\n')
+	if err != nil {
+		printError("Failed to receive connect response")
+		return err
+	}
+
+	var connectResponse map[string]interface{}
+	if err := json.Unmarshal([]byte(response), &connectResponse); err != nil {
+		printError("Invalid connect response")
+		return err
+	}
+
 	subscribeMsg := map[string]interface{}{
 		"type": "subscribe_updates",
 		"payload": map[string]interface{}{
@@ -751,4 +778,74 @@ func init() {
 	syncCmd.AddCommand(syncDisconnectCmd)
 	syncCmd.AddCommand(syncStatusCmd)
 	syncCmd.AddCommand(syncMonitorCmd)
+	syncCmd.AddCommand(progressSyncCmd)
+	syncCmd.AddCommand(progressSyncStatusCmd)
+}
+
+var progressSyncCmd = &cobra.Command{
+	Use:   "force-sync",
+	Short: "Force synchronization",
+	Long:  `Trigger an immediate synchronization with the server.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		active, _, err := config.IsConnectionActive()
+		if err != nil {
+			return err
+		}
+		if !active {
+			printError("Not connected to sync server")
+			return fmt.Errorf("no active connection")
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+
+		serverAddr := net.JoinHostPort(cfg.Server.Host, fmt.Sprintf("%d", cfg.Server.TCPPort))
+		conn, err := net.DialTimeout("tcp", serverAddr, 5*time.Second)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		// Authenticate first (simplified for brevity, ideally reuse auth logic)
+		authMsg := map[string]interface{}{
+			"type": "auth",
+			"payload": map[string]string{
+				"token": cfg.User.Token,
+			},
+		}
+		authJSON, _ := json.Marshal(authMsg)
+		authJSON = append(authJSON, '\n')
+		conn.Write(authJSON)
+
+		// Read auth response
+		reader := bufio.NewReader(conn)
+		reader.ReadString('\n')
+
+		// Send force sync
+		syncMsg := map[string]interface{}{
+			"type":    "force_sync",
+			"payload": map[string]interface{}{},
+		}
+		syncJSON, _ := json.Marshal(syncMsg)
+		syncJSON = append(syncJSON, '\n')
+
+		if _, err := conn.Write(syncJSON); err != nil {
+			return err
+		}
+
+		printSuccess("Sync triggered successfully")
+		return nil
+	},
+}
+
+var progressSyncStatusCmd = &cobra.Command{
+	Use:   "sync-status",
+	Short: "Check sync status",
+	Long:  `Check the status of the synchronization service.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Reuse existing status logic but alias it for "progress sync-status"
+		return syncStatusCmd.RunE(cmd, args)
+	},
 }

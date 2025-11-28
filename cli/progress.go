@@ -175,4 +175,72 @@ func init() {
 
 	progressCmd.AddCommand(progressUpdateCmd)
 	progressCmd.AddCommand(progressViewCmd)
+	progressCmd.AddCommand(progressHistoryCmd)
+}
+
+var progressHistoryCmd = &cobra.Command{
+	Use:   "history",
+	Short: "View reading history",
+	Long:  `View your reading history for all manga.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			printError("Configuration not initialized")
+			return err
+		}
+
+		if cfg.User.Token == "" {
+			printError("Not logged in")
+			return fmt.Errorf("authentication required")
+		}
+
+		serverURL, err := config.GetServerURL()
+		if err != nil {
+			return err
+		}
+
+		req, _ := http.NewRequest("GET", serverURL+"/users/progress/history", nil)
+		req.Header.Set("Authorization", "Bearer "+cfg.User.Token)
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			printError("Failed to get history: Server connection error")
+			return err
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			var errResp map[string]string
+			json.Unmarshal(body, &errResp)
+			printError(fmt.Sprintf("Failed to get history: %s", errResp["error"]))
+			return fmt.Errorf("failed to get history")
+		}
+
+		var history []struct {
+			MangaID        string `json:"manga_id"`
+			Title          string `json:"title"`
+			CurrentChapter int    `json:"current_chapter"`
+			LastReadAt     string `json:"last_read_at"`
+		}
+		json.Unmarshal(body, &history)
+
+		if len(history) == 0 {
+			fmt.Println("No reading history found.")
+			return nil
+		}
+
+		fmt.Println("Reading History:")
+		fmt.Println("----------------")
+		for _, item := range history {
+			fmt.Printf("- %s (ID: %s)\n", item.Title, item.MangaID)
+			fmt.Printf("  Chapter: %d\n", item.CurrentChapter)
+			fmt.Printf("  Last Read: %s\n", item.LastReadAt)
+			fmt.Println()
+		}
+
+		return nil
+	},
 }

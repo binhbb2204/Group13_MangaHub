@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
@@ -98,4 +103,65 @@ var serverStatusCmd = &cobra.Command{
 func init() {
 	serverCmd.AddCommand(serverStartCmd)
 	serverCmd.AddCommand(serverStatusCmd)
+	serverCmd.AddCommand(serverPingCmd)
+	serverCmd.AddCommand(serverHealthCmd)
+}
+
+var serverPingCmd = &cobra.Command{
+	Use:   "ping",
+	Short: "Ping the server",
+	Long:  `Check if the server is reachable.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		port := getServerPort()
+		pingURL := fmt.Sprintf("http://localhost:%s/ping", port)
+
+		client := http.Client{
+			Timeout: 2 * time.Second,
+		}
+		resp, err := client.Get(pingURL)
+		if err != nil {
+			return fmt.Errorf("server unreachable: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			printSuccess("Pong!")
+			return nil
+		}
+		return fmt.Errorf("server returned status: %d", resp.StatusCode)
+	},
+}
+
+var serverHealthCmd = &cobra.Command{
+	Use:   "health",
+	Short: "Check server health",
+	Long:  `Get detailed health status of the server.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		port := getServerPort()
+		healthURL := fmt.Sprintf("http://localhost:%s/health", port)
+
+		client := http.Client{
+			Timeout: 2 * time.Second,
+		}
+		resp, err := client.Get(healthURL)
+		if err != nil {
+			return fmt.Errorf("server unreachable: %w", err)
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("server unhealthy (HTTP %d): %s", resp.StatusCode, string(body))
+		}
+
+		// Pretty print JSON response if possible
+		var prettyJSON bytes.Buffer
+		if err := json.Indent(&prettyJSON, body, "", "  "); err == nil {
+			fmt.Println(prettyJSON.String())
+		} else {
+			fmt.Println(string(body))
+		}
+
+		return nil
+	},
 }

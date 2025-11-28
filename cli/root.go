@@ -36,6 +36,15 @@ func init() {
 	rootCmd.AddCommand(notifyCmd)
 	rootCmd.AddCommand(chatCmd)
 
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(systemCmd)
+	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(importCmd)
+	rootCmd.AddCommand(updateCmd)
+
+	libraryCmd.AddCommand(libraryBatchUpdateCmd)
+
 }
 
 func Execute() error {

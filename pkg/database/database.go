@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+	// _ "modernc.org/sqlite"
 )
 
 var DB *sql.DB
 
 func InitDatabase(dbPath string) error {
-	// Ensure parent directory exists so sqlite can create the .db file
 	dir := filepath.Dir(dbPath)
 	if dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -23,6 +23,7 @@ func InitDatabase(dbPath string) error {
 	}
 
 	var err error
+	// DB, err = sql.Open("sqlite", dbPath)
 	DB, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -33,7 +34,6 @@ func InitDatabase(dbPath string) error {
 	}
 	log.Println("Database connection established")
 
-	// Enable foreign key support for SQLite (useful for cascading deletes, etc.)
 	if _, err := DB.Exec("PRAGMA foreign_keys = ON;"); err != nil {
 		log.Printf("Warning: failed to enable foreign keys: %v", err)
 	}
@@ -97,7 +97,6 @@ func createTables() error {
 	if err != nil {
 		return err
 	}
-	// Backfill: ensure email column exists for existing DBs
 	if err := ensureUserEmailColumn(); err != nil {
 		return err
 	}
