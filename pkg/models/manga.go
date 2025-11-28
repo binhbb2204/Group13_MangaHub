@@ -44,6 +44,6 @@ type PaginationMeta struct {
 }
 
 type PaginatedBooksResponse struct {
-	Mangas    []Manga          `json:"mangas"`
-	Pagination PaginationMeta   `json:"pagination"`
+	Mangas     []Manga        `json:"mangas"`
+	Pagination PaginationMeta `json:"pagination"`
 }
