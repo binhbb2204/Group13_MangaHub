@@ -42,6 +42,7 @@ func init() {
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(grpcCmd)
 
 	libraryCmd.AddCommand(libraryBatchUpdateCmd)
 
