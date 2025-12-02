@@ -16,14 +16,14 @@ func TestPerformanceMessageLatency(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9700", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9700")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -73,14 +73,14 @@ func TestPerformanceDatabaseQuerySpeed(t *testing.T) {
 			"manga-"+string(rune(i)), i*10)
 	}
 
-	server := tcp.NewServer("9701", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9701")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -128,12 +128,15 @@ func TestPerformanceConcurrentOperationsThroughput(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9702", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
 
 	numClients := 10
 	messagesPerClient := 20
@@ -144,7 +147,7 @@ func TestPerformanceConcurrentOperationsThroughput(t *testing.T) {
 	doneChan := make(chan bool, numClients)
 	for i := 0; i < numClients; i++ {
 		go func() {
-			conn, err := net.Dial("tcp", "localhost:9702")
+			conn, err := net.Dial("tcp", address)
 			if err != nil {
 				doneChan <- false
 				return
@@ -184,12 +187,15 @@ func TestPerformanceAuthenticationSpeed(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9703", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
 
 	numAuths := 20
 	var totalAuthTime time.Duration
@@ -200,7 +206,7 @@ func TestPerformanceAuthenticationSpeed(t *testing.T) {
 	}
 
 	for i := 0; i < numAuths; i++ {
-		conn, err := net.Dial("tcp", "localhost:9703")
+		conn, err := net.Dial("tcp", address)
 		if err != nil {
 			t.Fatalf("Failed to connect: %v", err)
 		}
@@ -249,14 +255,14 @@ func TestPerformanceLargeLibraryRetrieval(t *testing.T) {
 			"manga-large-"+string(rune(i)), i)
 	}
 
-	server := tcp.NewServer("9704", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9704")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}

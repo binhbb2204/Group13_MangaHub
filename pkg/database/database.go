@@ -23,7 +23,7 @@ func InitDatabase(dbPath string) error {
 	}
 
 	var err error
-	DB, err = sql.Open("sqlite", dbPath)
+	DB, err = sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}

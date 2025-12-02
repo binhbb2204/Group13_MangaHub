@@ -15,14 +15,15 @@ func TestStatusRequestBasic(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9101", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9101", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send connect message to establish session
@@ -95,15 +96,17 @@ func TestStatusRequestMultipleDevices(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9102", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+
 	// Connect first device
-	conn1 := connectAndAuthenticateClient(t, "9102", "test-user-1", "testuser")
+	conn1 := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn1.Close()
 	connectMsg1 := createMessage("connect", map[string]interface{}{
 		"device_type": "desktop",
@@ -113,7 +116,7 @@ func TestStatusRequestMultipleDevices(t *testing.T) {
 	readResponse(t, conn1) // Read connect response
 
 	// Connect second device (same user)
-	conn2 := connectAndAuthenticateClient(t, "9102", "test-user-1", "testuser")
+	conn2 := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn2.Close()
 	connectMsg2 := createMessage("connect", map[string]interface{}{
 		"device_type": "mobile",
@@ -123,7 +126,7 @@ func TestStatusRequestMultipleDevices(t *testing.T) {
 	readResponse(t, conn2) // Read connect response
 
 	// Connect third device (same user)
-	conn3 := connectAndAuthenticateClient(t, "9102", "test-user-1", "testuser")
+	conn3 := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn3.Close()
 	connectMsg3 := createMessage("connect", map[string]interface{}{
 		"device_type": "web",
@@ -162,14 +165,15 @@ func TestStatusRequestWithLastSync(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9103", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9103", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send connect message
@@ -243,14 +247,14 @@ func TestStatusRequestWithoutAuthentication(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9104", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9104")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -277,14 +281,15 @@ func TestStatusRequestWithoutSession(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9105", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9105", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send status_request without connecting (no session)
@@ -308,14 +313,15 @@ func TestStatusRequestNetworkQuality(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9106", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9106", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send connect message
@@ -379,14 +385,15 @@ func TestStatusRequestMessageCounts(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9107", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9107", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send connect message

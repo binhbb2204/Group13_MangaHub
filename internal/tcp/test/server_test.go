@@ -11,17 +11,17 @@ import (
 )
 
 func TestNewServer(t *testing.T) {
-	server := tcp.NewServer("9999", nil)
+	server := tcp.NewServer("0", nil)
 	if server == nil {
 		t.Fatal("NewServer returned nil")
 	}
-	if server.Port != "9999" {
-		t.Errorf("Expected port 9999, got %s", server.Port)
+	if server.Port != "0" {
+		t.Errorf("Expected port 0, got %s", server.Port)
 	}
 }
 
 func TestServerStartStop(t *testing.T) {
-	server := tcp.NewServer("9091", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -34,13 +34,13 @@ func TestServerStartStop(t *testing.T) {
 }
 
 func TestServerAcceptConnection(t *testing.T) {
-	server := tcp.NewServer("9092", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
-	conn, err := net.Dial("tcp", "localhost:9092")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestServerAcceptConnection(t *testing.T) {
 }
 
 func TestMultipleConcurrentConnections(t *testing.T) {
-	server := tcp.NewServer("9093", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestMultipleConcurrentConnections(t *testing.T) {
 	numClients := 10
 	clients := make([]net.Conn, numClients)
 	for i := 0; i < numClients; i++ {
-		conn, err := net.Dial("tcp", "localhost:9093")
+		conn, err := net.Dial("tcp", server.Address())
 		if err != nil {
 			t.Fatalf("Failed to connect client %d: %v", i, err)
 		}
@@ -85,13 +85,13 @@ func TestMultipleConcurrentConnections(t *testing.T) {
 }
 
 func TestEchoFunctionality(t *testing.T) {
-	server := tcp.NewServer("9094", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
-	conn, err := net.Dial("tcp", "localhost:9094")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -115,13 +115,13 @@ func TestEchoFunctionality(t *testing.T) {
 }
 
 func TestClientDisconnection(t *testing.T) {
-	server := tcp.NewServer("9095", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
-	conn, err := net.Dial("tcp", "localhost:9095")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestClientDisconnection(t *testing.T) {
 }
 
 func TestServerStopWithActiveConnections(t *testing.T) {
-	server := tcp.NewServer("9096", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestServerStopWithActiveConnections(t *testing.T) {
 	numClients := 5
 	clients := make([]net.Conn, numClients)
 	for i := 0; i < numClients; i++ {
-		conn, err := net.Dial("tcp", "localhost:9096")
+		conn, err := net.Dial("tcp", server.Address())
 		if err != nil {
 			t.Fatalf("Failed to connect client %d: %v", i, err)
 		}
@@ -165,13 +165,16 @@ func TestServerStopWithActiveConnections(t *testing.T) {
 }
 
 func TestPortAlreadyInUse(t *testing.T) {
-	server1 := tcp.NewServer("9097", nil)
+	server1 := tcp.NewServer("0", nil)
 	if err := server1.Start(); err != nil {
 		t.Fatalf("Failed to start first server: %v", err)
 	}
 	defer server1.Stop()
 	time.Sleep(100 * time.Millisecond)
-	server2 := tcp.NewServer("9097", nil)
+
+	_, port, _ := net.SplitHostPort(server1.Address())
+
+	server2 := tcp.NewServer(port, nil)
 	err := server2.Start()
 	if err == nil {
 		server2.Stop()
@@ -180,7 +183,7 @@ func TestPortAlreadyInUse(t *testing.T) {
 }
 
 func BenchmarkServerAcceptConnections(b *testing.B) {
-	server := tcp.NewServer("9098", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		b.Fatalf("Failed to start server: %v", err)
 	}
@@ -188,7 +191,7 @@ func BenchmarkServerAcceptConnections(b *testing.B) {
 	time.Sleep(100 * time.Millisecond)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		conn, err := net.Dial("tcp", "localhost:9098")
+		conn, err := net.Dial("tcp", server.Address())
 		if err != nil {
 			b.Fatalf("Failed to connect: %v", err)
 		}

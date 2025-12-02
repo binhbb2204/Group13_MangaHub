@@ -22,14 +22,15 @@ func TestSubscribeUpdatesBasic(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9201", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9201", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send connect message
@@ -62,14 +63,14 @@ func TestSubscribeWithoutAuthentication(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9202", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9202")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -98,14 +99,15 @@ func TestUnsubscribeUpdates(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9203", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9203", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send connect message
@@ -147,15 +149,17 @@ func TestEventBroadcasting(t *testing.T) {
 	br.Start()
 	defer br.Stop()
 
-	server := tcp.NewServer("9204", br)
+	server := tcp.NewServer("0", br)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+
 	// Connect and subscribe first device (monitoring device)
-	monitorConn := connectAndAuthenticateClient(t, "9204", "test-user-1", "testuser")
+	monitorConn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer monitorConn.Close()
 
 	connectMsg1 := createMessage("connect", map[string]interface{}{
@@ -172,7 +176,7 @@ func TestEventBroadcasting(t *testing.T) {
 	readResponse(t, monitorConn)
 
 	// Connect second device (updating device)
-	updateConn := connectAndAuthenticateClient(t, "9204", "test-user-1", "testuser")
+	updateConn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer updateConn.Close()
 
 	connectMsg2 := createMessage("connect", map[string]interface{}{
@@ -255,19 +259,21 @@ func TestMultipleSubscribers(t *testing.T) {
 	br.Start()
 	defer br.Stop()
 
-	server := tcp.NewServer("9205", br)
+	server := tcp.NewServer("0", br)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+
 	// Connect three monitoring devices
 	monitors := make([]net.Conn, 3)
 	eventChannels := make([]chan bool, 3)
 
 	for i := 0; i < 3; i++ {
-		monitors[i] = connectAndAuthenticateClient(t, "9205", "test-user-1", "testuser")
+		monitors[i] = connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 		defer monitors[i].Close()
 
 		connectMsg := createMessage("connect", map[string]interface{}{
@@ -289,7 +295,7 @@ func TestMultipleSubscribers(t *testing.T) {
 	}
 
 	// Connect update device
-	updateConn := connectAndAuthenticateClient(t, "9205", "test-user-1", "testuser")
+	updateConn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer updateConn.Close()
 
 	connectMsg := createMessage("connect", map[string]interface{}{
@@ -347,15 +353,17 @@ func TestEventFilteringByUser(t *testing.T) {
 	b.Start()
 	defer b.Stop()
 
-	server := tcp.NewServer("9206", b)
+	server := tcp.NewServer("0", b)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+
 	// Connect user 1 monitor
-	user1Monitor := connectAndAuthenticateClient(t, "9206", "test-user-1", "testuser")
+	user1Monitor := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer user1Monitor.Close()
 
 	connectMsg1 := createMessage("connect", map[string]interface{}{
@@ -372,7 +380,7 @@ func TestEventFilteringByUser(t *testing.T) {
 	readResponse(t, user1Monitor)
 
 	// Connect user 2 monitor
-	user2Monitor := connectAndAuthenticateClient(t, "9206", "test-user-2", "testuser2")
+	user2Monitor := connectAndAuthenticateClient(t, port, "test-user-2", "testuser2")
 	defer user2Monitor.Close()
 
 	connectMsg2 := createMessage("connect", map[string]interface{}{
@@ -397,7 +405,7 @@ func TestEventFilteringByUser(t *testing.T) {
 
 	// User 1 sends update
 	time.Sleep(100 * time.Millisecond)
-	user1Update := connectAndAuthenticateClient(t, "9206", "test-user-1", "testuser")
+	user1Update := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer user1Update.Close()
 
 	connectMsg3 := createMessage("connect", map[string]interface{}{
@@ -442,12 +450,14 @@ func TestConcurrentMonitoring(t *testing.T) {
 	b.Start()
 	defer b.Stop()
 
-	server := tcp.NewServer("9207", b)
+	server := tcp.NewServer("0", b)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
+
+	_, port, _ := net.SplitHostPort(server.Address())
 
 	numMonitors := 5
 	monitors := make([]net.Conn, numMonitors)
@@ -456,7 +466,7 @@ func TestConcurrentMonitoring(t *testing.T) {
 
 	// Connect multiple monitors
 	for i := 0; i < numMonitors; i++ {
-		monitors[i] = connectAndAuthenticateClient(t, "9207", "test-user-1", "testuser")
+		monitors[i] = connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 		defer monitors[i].Close()
 
 		connectMsg := createMessage("connect", map[string]interface{}{
@@ -481,7 +491,7 @@ func TestConcurrentMonitoring(t *testing.T) {
 	}
 
 	// Connect update device
-	updateConn := connectAndAuthenticateClient(t, "9207", "test-user-1", "testuser")
+	updateConn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer updateConn.Close()
 
 	connectMsg := createMessage("connect", map[string]interface{}{
@@ -522,14 +532,15 @@ func TestSubscribeDefaultEventTypes(t *testing.T) {
 	setupTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9208", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn := connectAndAuthenticateClient(t, "9208", "test-user-1", "testuser")
+	_, port, _ := net.SplitHostPort(server.Address())
+	conn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer conn.Close()
 
 	// Send connect message
@@ -565,15 +576,17 @@ func TestUpdateEventPayloadStructure(t *testing.T) {
 	b.Start()
 	defer b.Stop()
 
-	server := tcp.NewServer("9209", b)
+	server := tcp.NewServer("0", b)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+
 	// Connect monitor
-	monitorConn := connectAndAuthenticateClient(t, "9209", "test-user-1", "testuser")
+	monitorConn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer monitorConn.Close()
 
 	connectMsg1 := createMessage("connect", map[string]interface{}{
@@ -590,7 +603,7 @@ func TestUpdateEventPayloadStructure(t *testing.T) {
 	readResponse(t, monitorConn)
 
 	// Connect update device
-	updateConn := connectAndAuthenticateClient(t, "9209", "test-user-1", "testuser")
+	updateConn := connectAndAuthenticateClient(t, port, "test-user-1", "testuser")
 	defer updateConn.Close()
 
 	connectMsg2 := createMessage("connect", map[string]interface{}{

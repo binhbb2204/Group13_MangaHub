@@ -18,14 +18,14 @@ func TestReliabilityInvalidAuthToken(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9800", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9800")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -72,14 +72,14 @@ func TestReliabilityMalformedMessages(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9801", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9801")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -119,14 +119,14 @@ func TestReliabilityUnauthenticatedOperations(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9802", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9802")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -192,14 +192,14 @@ func TestReliabilityInvalidDatabaseOperations(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9803", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9803")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -275,12 +275,15 @@ func TestReliabilityConcurrentUserUpdates(t *testing.T) {
 	database.DB.Exec(`INSERT INTO manga (id, title, author, status, total_chapters) 
 	                   VALUES ('manga-concurrent', 'Test Manga', 'Author', 'ongoing', 100)`)
 
-	server := tcp.NewServer("9804", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
 
 	numConcurrent := 10
 	var wg sync.WaitGroup
@@ -295,7 +298,7 @@ func TestReliabilityConcurrentUserUpdates(t *testing.T) {
 		go func(chapter int) {
 			defer wg.Done()
 
-			conn, err := net.Dial("tcp", "localhost:9804")
+			conn, err := net.Dial("tcp", address)
 			if err != nil {
 				return
 			}
@@ -344,14 +347,14 @@ func TestReliabilityConnectionStability(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9805", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9805")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -389,14 +392,14 @@ func TestReliabilityLargePayloadHandling(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9806", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9806")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -436,18 +439,21 @@ func TestReliabilityRapidConnectionCycles(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9807", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
+
 	numCycles := 50
 	successCount := 0
 
 	for i := 0; i < numCycles; i++ {
-		conn, err := net.Dial("tcp", "localhost:9807")
+		conn, err := net.Dial("tcp", address)
 		if err != nil {
 			continue
 		}

@@ -97,3 +97,10 @@ func (s *Server) removeClient(userID string) {
 func (s *Server) GetClientCount() int {
 	return len(s.clientManager.List())
 }
+
+func (s *Server) Address() string {
+	if s.listener != nil {
+		return s.listener.Addr().String()
+	}
+	return ""
+}

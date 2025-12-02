@@ -16,14 +16,14 @@ func TestConnectivityGracefulDisconnection(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9500", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9500")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestConnectivityGracefulDisconnection(t *testing.T) {
 	conn.Close()
 	time.Sleep(100 * time.Millisecond)
 
-	conn2, err := net.Dial("tcp", "localhost:9500")
+	conn2, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to reconnect after graceful close: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestConnectivityMultipleSequentialConnections(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9501", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestConnectivityMultipleSequentialConnections(t *testing.T) {
 
 	numConnections := 10
 	for i := 0; i < numConnections; i++ {
-		conn, err := net.Dial("tcp", "localhost:9501")
+		conn, err := net.Dial("tcp", server.Address())
 		if err != nil {
 			t.Fatalf("Connection %d failed: %v", i+1, err)
 		}
@@ -101,14 +101,14 @@ func TestConnectivityConnectionTimeout(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9502", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.DialTimeout("tcp", "localhost:9502", 2*time.Second)
+	conn, err := net.DialTimeout("tcp", server.Address(), 2*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to connect with timeout: %v", err)
 	}
@@ -139,14 +139,14 @@ func TestConnectivityAbruptDisconnection(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9503", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9503")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestConnectivityAbruptDisconnection(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	conn2, err := net.Dial("tcp", "localhost:9503")
+	conn2, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Server crashed after abrupt disconnection: %v", err)
 	}
@@ -199,18 +199,21 @@ func TestConnectivityConcurrentConnectionsStability(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9504", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
+
 	numConnections := 20
 	connections := make([]net.Conn, numConnections)
 
 	for i := 0; i < numConnections; i++ {
-		conn, err := net.Dial("tcp", "localhost:9504")
+		conn, err := net.Dial("tcp", address)
 		if err != nil {
 			t.Fatalf("Failed to establish connection %d: %v", i+1, err)
 		}
@@ -240,13 +243,13 @@ func TestConnectivityServerShutdownGraceful(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9505", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9505")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}

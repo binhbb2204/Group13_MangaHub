@@ -18,14 +18,14 @@ func TestInteroperabilityJSONProtocol(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9600", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9600")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -59,14 +59,14 @@ func TestInteroperabilityMessageFormatCompliance(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9601", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9601")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -115,14 +115,14 @@ func TestInteroperabilityNewlineDelimiter(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9602", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9602")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -169,14 +169,14 @@ func TestInteroperabilityUTF8Encoding(t *testing.T) {
 		t.Fatalf("Failed to insert UTF-8 test data: %v", err)
 	}
 
-	server := tcp.NewServer("9603", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9603")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -230,14 +230,14 @@ func TestInteroperabilityMultipleMessageTypes(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9604", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9604")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -283,14 +283,14 @@ func TestInteroperabilityResponseFormat(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9605", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9605")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}

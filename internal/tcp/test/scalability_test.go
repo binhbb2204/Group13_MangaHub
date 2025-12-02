@@ -18,12 +18,15 @@ func TestScalabilityConcurrentConnections(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9300", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
 
 	numClients := 50
 	var wg sync.WaitGroup
@@ -35,7 +38,7 @@ func TestScalabilityConcurrentConnections(t *testing.T) {
 		go func(clientID int) {
 			defer wg.Done()
 
-			conn, err := net.Dial("tcp", "localhost:9300")
+			conn, err := net.Dial("tcp", address)
 			if err != nil {
 				atomic.AddInt32(&errorCount, 1)
 				return
@@ -91,14 +94,14 @@ func TestScalabilityHighThroughput(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9301", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9301")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -151,12 +154,15 @@ func TestScalabilityConcurrentDatabaseWrites(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9302", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
 
 	numClients := 10
 	messagesPerClient := 5
@@ -168,7 +174,7 @@ func TestScalabilityConcurrentDatabaseWrites(t *testing.T) {
 		go func(clientID int) {
 			defer wg.Done()
 
-			conn, err := net.Dial("tcp", "localhost:9302")
+			conn, err := net.Dial("tcp", address)
 			if err != nil {
 				return
 			}
@@ -229,12 +235,12 @@ func BenchmarkMessageProcessing(b *testing.B) {
 	database.DB.Exec(`INSERT INTO users (id, username, email, password_hash) VALUES ('test-user-1', 'testuser', 'test@example.com', 'hash123')`)
 	database.DB.Exec(`INSERT INTO manga (id, title, author, status, total_chapters) VALUES ('manga-1', 'Test Manga', 'Author', 'ongoing', 100)`)
 
-	server := tcp.NewServer("9303", nil)
+	server := tcp.NewServer("0", nil)
 	server.Start()
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, _ := net.Dial("tcp", "localhost:9303")
+	conn, _ := net.Dial("tcp", server.Address())
 	defer conn.Close()
 
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -273,16 +279,19 @@ func TestScalabilityMemoryLeak(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9304", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
+
 	iterations := 20
 	for i := 0; i < iterations; i++ {
-		conn, err := net.Dial("tcp", "localhost:9304")
+		conn, err := net.Dial("tcp", address)
 		if err != nil {
 			t.Fatalf("Connection failed on iteration %d: %v", i, err)
 		}

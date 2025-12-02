@@ -16,14 +16,14 @@ func TestDurabilityDatabasePersistence(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9400", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9400")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -83,14 +83,14 @@ func TestDurabilityDataConsistency(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9401", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9401")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -146,13 +146,16 @@ func TestDurabilityServerRestart(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9402", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9402")
+	_, port, _ := net.SplitHostPort(server.Address())
+	address := "localhost:" + port
+
+	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -190,13 +193,20 @@ func TestDurabilityServerRestart(t *testing.T) {
 	server.Stop()
 	time.Sleep(200 * time.Millisecond)
 
+	// Restart server on the SAME port to simulate restart
+	// Note: In a real dynamic port scenario, we can't easily guarantee the same port.
+	// However, for the purpose of testing persistence, the port doesn't matter as long as the DB is the same.
+	// But the test logic below tries to reconnect to "localhost:9402".
+	// We should use a new dynamic port for the restarted server and connect to that.
+
+	server = tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to restart server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn2, err := net.Dial("tcp", "localhost:9402")
+	conn2, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to reconnect after restart: %v", err)
 	}
@@ -234,14 +244,14 @@ func TestDurabilityTransactionRollback(t *testing.T) {
 	setupLibraryTestDB(t)
 	defer database.Close()
 
-	server := tcp.NewServer("9403", nil)
+	server := tcp.NewServer("0", nil)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer server.Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := net.Dial("tcp", "localhost:9403")
+	conn, err := net.Dial("tcp", server.Address())
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
