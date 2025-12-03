@@ -221,3 +221,333 @@ Content-Type: application/json
 ```
 
 Want all the technical details? Check out `docs/API_ENDPOINTS.md` for the full API documentation with request/response examples.
+
+## Complete Testing Guide
+
+### 🔍 Search & Ranking API Tests
+
+#### **Test Case 1: Search with No Limit (Fetch ALL Results)**
+Fetches all available results from MAL (up to 500 max), returns as array of 20-item pages.
+
+**CLI:**
+```bash
+mangahub manga search "naruto"
+```
+
+**API:**
+```bash
+# Returns array of paginated objects (up to 500 results total)
+curl "http://localhost:8080/manga/search?q=naruto"
+```
+
+#### **Test Case 2: Search with Limit (Cap Total Results)**
+Fetches only the specified number of results, returns as array of 20-item pages.
+
+**CLI:**
+```bash
+mangahub manga search "naruto" --limit 50
+```
+
+**API:**
+```bash
+# Returns array with exactly 50 results split into 3 pages (20, 20, 10)
+curl "http://localhost:8080/manga/search?q=naruto&limit=50"
+
+# Returns array with exactly 100 results split into 5 pages (20 each)
+curl "http://localhost:8080/manga/search?q=naruto&limit=100"
+```
+
+#### **Test Case 3: Search Specific Page**
+Returns only the requested page (20 items) from all available results.
+
+**CLI:**
+```bash
+mangahub manga search "naruto" --page 1
+mangahub manga search "naruto" --page 2
+```
+
+**API:**
+```bash
+# Returns page 1 (20 items) from ALL results
+curl "http://localhost:8080/manga/search?q=naruto&page=1"
+
+# Returns page 2 (20 items) from ALL results
+curl "http://localhost:8080/manga/search?q=naruto&page=2"
+```
+
+#### **Test Case 4: Search Specific Page with Limit**
+Returns only the requested page from the limited result set.
+
+**CLI:**
+```bash
+mangahub manga search "naruto" --limit 100 --page 1
+mangahub manga search "naruto" --limit 100 --page 3
+```
+
+**API:**
+```bash
+# Returns page 1 (20 items) from first 100 results
+curl "http://localhost:8080/manga/search?q=naruto&limit=100&page=1"
+
+# Returns page 3 (20 items) from first 100 results
+curl "http://localhost:8080/manga/search?q=naruto&limit=100&page=3"
+```
+
+#### **Test Case 5: Ranking with No Limit**
+Fetches all available ranking results (up to 500), returns as array of 20-item pages.
+
+**CLI:**
+```bash
+mangahub manga ranking all
+mangahub manga ranking bypopularity
+mangahub manga ranking favorite
+```
+
+**API:**
+```bash
+# Get ALL top-ranked manga (up to 500)
+curl "http://localhost:8080/manga/ranking?type=all"
+
+# Get ALL most popular manga
+curl "http://localhost:8080/manga/ranking?type=bypopularity"
+
+# Get ALL most favorited manga
+curl "http://localhost:8080/manga/ranking?type=favorite"
+```
+
+#### **Test Case 6: Ranking with Limit**
+Fetches only the specified number of ranking results.
+
+**CLI:**
+```bash
+mangahub manga ranking bypopularity --limit 100
+mangahub manga ranking all --limit 50
+```
+
+**API:**
+```bash
+# Get only top 100 by popularity (5 pages of 20 each)
+curl "http://localhost:8080/manga/ranking?type=bypopularity&limit=100"
+
+# Get only top 50 overall (3 pages: 20, 20, 10)
+curl "http://localhost:8080/manga/ranking?type=all&limit=50"
+
+# Get only top 25 favorites (2 pages: 20, 5)
+curl "http://localhost:8080/manga/ranking?type=favorite&limit=25"
+```
+
+#### **Test Case 7: Ranking Specific Page**
+Returns only the requested page from ranking results.
+
+**CLI:**
+```bash
+mangahub manga ranking bypopularity --page 1
+mangahub manga ranking all --page 5
+```
+
+**API:**
+```bash
+# Get page 1 of popular manga
+curl "http://localhost:8080/manga/ranking?type=bypopularity&page=1"
+
+# Get page 5 of all rankings
+curl "http://localhost:8080/manga/ranking?type=all&page=5"
+```
+
+#### **Test Case 8: Featured Manga (Homepage)**
+Returns curated lists for homepage display.
+
+**API:**
+```bash
+# Get featured manga sections (Top Ranked, Most Popular, Most Favorited)
+curl "http://localhost:8080/manga/featured"
+```
+
+#### **Test Case 9: Manga Details**
+Get full information about a specific manga.
+
+**CLI:**
+```bash
+mangahub manga info 13      # One Piece
+mangahub manga info 21      # Death Note
+mangahub manga info 2       # Berserk
+```
+
+**API:**
+```bash
+# Get detailed information
+curl "http://localhost:8080/manga/info/13"
+curl "http://localhost:8080/manga/info/21"
+```
+
+### 👤 Authentication Tests
+
+#### **Test Case 10: User Registration**
+
+**CLI:**
+```bash
+mangahub auth register --username testuser --email test@example.com
+# Password will be prompted securely
+```
+
+**API:**
+```bash
+curl -X POST "http://localhost:8080/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "testuser",
+    "email": "test@example.com",
+    "password": "SecurePass123"
+  }'
+```
+
+#### **Test Case 11: User Login**
+
+**CLI:**
+```bash
+mangahub auth login --username testuser
+# Password will be prompted securely
+```
+
+**API:**
+```bash
+curl -X POST "http://localhost:8080/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "testuser",
+    "password": "SecurePass123"
+  }'
+# Save the returned token for authenticated requests
+```
+
+#### **Test Case 12: User Logout**
+
+**CLI:**
+```bash
+mangahub auth logout
+```
+
+### 📚 Library Management Tests (Requires Authentication)
+
+#### **Test Case 13: Add Manga to Library**
+
+**CLI:**
+```bash
+mangahub library add --manga-id 13 --status reading
+mangahub library add --manga-id 21 --status completed
+mangahub library add --manga-id 2 --status plan_to_read
+```
+
+**API:**
+```bash
+curl -X POST "http://localhost:8080/users/library" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "manga_id": "13",
+    "status": "reading"
+  }'
+```
+
+Status options: `reading`, `completed`, `plan_to_read`, `on_hold`, `dropped`
+
+#### **Test Case 14: View Library**
+
+**CLI:**
+```bash
+mangahub library list
+mangahub library list --status reading
+mangahub library list --status completed
+```
+
+**API:**
+```bash
+# Get all library items
+curl "http://localhost:8080/users/library" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Filter by status
+curl "http://localhost:8080/users/library?status=reading" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+#### **Test Case 15: Update Reading Progress**
+
+**CLI:**
+```bash
+mangahub progress update --manga-id 13 --chapter 1095
+mangahub progress update --manga-id 21 --chapter 108
+```
+
+**API:**
+```bash
+curl -X PUT "http://localhost:8080/users/progress" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "manga_id": "13",
+    "current_chapter": 1095
+  }'
+```
+
+### 📊 Response Format Examples
+
+#### Single Page Response
+```json
+{
+  "mangas": [
+    {
+      "id": "2",
+      "title": "Berserk",
+      "author": "Kentarou Miura",
+      "status": "currently_publishing",
+      "total_chapters": 0,
+      "cover_url": "https://cdn.myanimelist.net/images/manga/1/157897l.webp"
+    }
+    // ... more manga (up to 20)
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 500,
+    "total_pages": 25,
+    "has_next": true,
+    "has_prev": false
+  }
+}
+```
+
+#### Multiple Pages Response (When no page specified)
+```json
+[
+  {
+    "mangas": [ /* 20 items */ ],
+    "pagination": { "page": 1, "limit": 20, "total": 100, "total_pages": 5, "has_next": true, "has_prev": false }
+  },
+  {
+    "mangas": [ /* 20 items */ ],
+    "pagination": { "page": 2, "limit": 20, "total": 100, "total_pages": 5, "has_next": true, "has_prev": true }
+  }
+  // ... continues for all pages
+]
+```
+
+### 🎯 Key Testing Points
+
+**Pagination Behavior:**
+- ✅ No `limit` → Fetches ALL results (up to 500)
+- ✅ With `limit=N` → Fetches exactly N results (up to 500 max)
+- ✅ Page size is fixed at 20 items per page
+- ✅ `page` parameter → Returns only that specific page
+- ✅ No `page` → Returns all pages as array
+
+**CLI Defaults:**
+- CLI defaults to `--page 1` for better performance
+- Use `--limit` to cap total results
+- Use `--page` to navigate through pages
+
+**Expected Behavior:**
+- `?q=naruto` → All results (500 max), 25 pages
+- `?q=naruto&limit=100` → 100 results, 5 pages
+- `?q=naruto&page=2` → Page 2 only (20 items) from all 500
+- `?q=naruto&limit=100&page=3` → Page 3 only (20 items) from first 100

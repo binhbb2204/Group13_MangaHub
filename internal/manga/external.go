@@ -124,8 +124,8 @@ func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]
 		return nil, fmt.Errorf("MAL_CLIENT_ID not set in environment")
 	}
 
-	if limit <= 0 || limit > 100 {
-		limit = 100
+	if limit <= 0 {
+		limit = 20
 	}
 
 	u, _ := url.Parse(m.BaseURL + "/manga")

@@ -30,8 +30,9 @@ type SearchMangaRequest struct {
 	Genre  string   `form:"genre"`  // Single genre for filtering
 	Genres []string `form:"genres"` // Multiple genres (for future use)
 	Status string   `form:"status"`
-	Limit  int      `form:"limit" binding:"min=1,max=100"`
+	Limit  int      `form:"limit" binding:"min=1"`
 	Offset int      `form:"offset" binding:"min=0"`
+	Page   int      `form:"page" binding:"min=0"` // Optional: if provided, return only that page
 }
 
 type PaginationMeta struct {

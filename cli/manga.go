@@ -16,7 +16,9 @@ var (
 	searchGenre  string
 	searchStatus string
 	searchLimit  int
+	searchPage   int
 	rankingLimit int
+	rankingPage  int
 )
 
 var mangaCmd = &cobra.Command{
@@ -52,10 +54,17 @@ var mangaSearchCmd = &cobra.Command{
 		}
 
 		requestLimit := searchLimit
-		if requestLimit > 100 || requestLimit <= 0 {
-			requestLimit = 100
+		if requestLimit > 20 || requestLimit <= 0 {
+			requestLimit = 20
 		}
-		searchURL := fmt.Sprintf("%s/manga/search?q=%s&limit=%d", serverURL, url.QueryEscape(query), requestLimit)
+
+		// Default to page 1 if not specified to avoid fetching all results
+		page := searchPage
+		if page <= 0 {
+			page = 1
+		}
+
+		searchURL := fmt.Sprintf("%s/manga/search?q=%s&limit=%d&page=%d", serverURL, url.QueryEscape(query), requestLimit, page)
 
 		res, err := http.Get(searchURL)
 		if err != nil {
@@ -82,135 +91,259 @@ var mangaSearchCmd = &cobra.Command{
 				return nil
 			}
 
-			printError(fmt.Sprintf("Search failed: %s", errRes["error"]))
+			errorMsg := errRes["error"]
+			if errorMsg == "" {
+				errorMsg = fmt.Sprintf("Server returned status %d: %s", res.StatusCode, string(body))
+			}
+			printError(fmt.Sprintf("Search failed: %s", errorMsg))
 			return fmt.Errorf("search failed")
 		}
 
+		type PaginationMeta struct {
+			Page       int  `json:"page"`
+			Limit      int  `json:"limit"`
+			Total      int  `json:"total"`
+			TotalPages int  `json:"total_pages"`
+			HasNext    bool `json:"has_next"`
+			HasPrev    bool `json:"has_prev"`
+		}
+
+		type PaginatedResponse struct {
+			Mangas     []MangaItem    `json:"mangas"`
+			Pagination PaginationMeta `json:"pagination"`
+		}
+
+		// Try to parse as single page response first
+		var singlePageResult PaginatedResponse
+		if err := json.Unmarshal(body, &singlePageResult); err == nil && singlePageResult.Pagination.Total >= 0 {
+			// Single page response
+			displayMangaResults(singlePageResult.Mangas, query, searchGenre, searchStatus, searchLimit)
+
+			// Display pagination info
+			if singlePageResult.Pagination.Total > 0 {
+				fmt.Printf("\nPage %d of %d (Total: %d results)\n",
+					singlePageResult.Pagination.Page,
+					singlePageResult.Pagination.TotalPages,
+					singlePageResult.Pagination.Total)
+				if singlePageResult.Pagination.HasNext {
+					fmt.Printf("Use --page %d to see next page\n", singlePageResult.Pagination.Page+1)
+				}
+			}
+			return nil
+		}
+
+		// Try to parse as multiple pages response
+		var multiPageResult []PaginatedResponse
+		if err := json.Unmarshal(body, &multiPageResult); err == nil && len(multiPageResult) > 0 {
+			// Multiple pages response - combine all results
+			var allMangas []MangaItem
+			for _, page := range multiPageResult {
+				allMangas = append(allMangas, page.Mangas...)
+			}
+
+			displayMangaResults(allMangas, query, searchGenre, searchStatus, searchLimit)
+			fmt.Printf("\nShowing all %d pages (%d total results)\n", len(multiPageResult), len(allMangas))
+			return nil
+		}
+
+		// Fallback: Old format without pagination
 		var result struct {
-			Mangas []struct {
-				ID            string   `json:"id"`
-				Title         string   `json:"title"`
-				Author        string   `json:"author"`
-				Genres        []string `json:"genres"`
-				Status        string   `json:"status"`
-				TotalChapters int      `json:"total_chapters"`
-				Description   string   `json:"description"`
-			} `json:"mangas"`
-			Count int `json:"count"`
+			Mangas []MangaItem `json:"mangas"`
+			Count  int         `json:"count"`
 		}
 		json.Unmarshal(body, &result)
+		displayMangaResults(result.Mangas, query, searchGenre, searchStatus, searchLimit)
+		return nil
+	},
+}
 
-		// Apply client-side filters
-		filteredMangas := result.Mangas
-		if searchGenre != "" || searchStatus != "" {
-			filteredMangas = []struct {
-				ID            string   `json:"id"`
-				Title         string   `json:"title"`
-				Author        string   `json:"author"`
-				Genres        []string `json:"genres"`
-				Status        string   `json:"status"`
-				TotalChapters int      `json:"total_chapters"`
-				Description   string   `json:"description"`
-			}{}
+type MangaItem struct {
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	Author        string   `json:"author"`
+	Genres        []string `json:"genres"`
+	Status        string   `json:"status"`
+	TotalChapters int      `json:"total_chapters"`
+	Description   string   `json:"description"`
+}
 
-			for _, manga := range result.Mangas {
-				//Check genre filter
-				genreMatch := searchGenre == ""
-				if searchGenre != "" {
-					for _, g := range manga.Genres {
-						if strings.EqualFold(g, searchGenre) {
-							genreMatch = true
-							break
-						}
-					}
-				}
+type RankingMangaItem struct {
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Status        string `json:"status"`
+	TotalChapters int    `json:"total_chapters"`
+	Author        string `json:"author"`
+}
 
-				//Check status filter
-				statusMatch := searchStatus == ""
-				if searchStatus != "" {
-					if strings.EqualFold(manga.Status, searchStatus) ||
-						(strings.EqualFold(searchStatus, "completed") && strings.EqualFold(manga.Status, "finished")) {
-						statusMatch = true
-					}
-				}
+func displayMangaResults(mangas []MangaItem, query, filterGenre, filterStatus string, limit int) {
+	// Apply client-side filters
+	filteredMangas := mangas
+	if filterGenre != "" || filterStatus != "" {
+		filteredMangas = []MangaItem{}
 
-				if genreMatch && statusMatch {
-					filteredMangas = append(filteredMangas, manga)
-					if len(filteredMangas) >= searchLimit {
+		for _, manga := range mangas {
+			// Check genre filter
+			genreMatch := filterGenre == ""
+			if filterGenre != "" {
+				for _, g := range manga.Genres {
+					if strings.EqualFold(g, filterGenre) {
+						genreMatch = true
 						break
 					}
 				}
 			}
-		} else if len(filteredMangas) > searchLimit {
-			filteredMangas = filteredMangas[:searchLimit]
-		}
 
-		if len(filteredMangas) == 0 {
-			fmt.Printf("\nSearching for \"%s\"", query)
-			if searchGenre != "" || searchStatus != "" {
-				fmt.Printf(" (filters:")
-				if searchGenre != "" {
-					fmt.Printf(" genre=%s", searchGenre)
+			// Check status filter
+			statusMatch := filterStatus == ""
+			if filterStatus != "" {
+				if strings.EqualFold(manga.Status, filterStatus) ||
+					(strings.EqualFold(filterStatus, "completed") && strings.EqualFold(manga.Status, "finished")) {
+					statusMatch = true
 				}
-				if searchStatus != "" {
-					fmt.Printf(" status=%s", searchStatus)
-				}
-				fmt.Printf(")")
 			}
-			fmt.Println("...")
-			fmt.Println("\nNo manga found matching your search criteria.")
-			fmt.Println("\nSuggestions:")
-			fmt.Println("  - Check spelling and try again")
-			fmt.Println("  - Use broader search terms")
-			if searchGenre != "" || searchStatus != "" {
-				fmt.Println("  - Try removing filters")
-			}
-			fmt.Println("  - Try different keywords")
-			fmt.Println("  - Browse by searching popular titles")
-			return nil
-		}
 
-		//Print formatted table output
+			if genreMatch && statusMatch {
+				filteredMangas = append(filteredMangas, manga)
+				if len(filteredMangas) >= limit {
+					break
+				}
+			}
+		}
+	} else if len(filteredMangas) > limit {
+		filteredMangas = filteredMangas[:limit]
+	}
+
+	if len(filteredMangas) == 0 {
 		fmt.Printf("\nSearching for \"%s\"", query)
-		if searchGenre != "" || searchStatus != "" {
+		if filterGenre != "" || filterStatus != "" {
 			fmt.Printf(" (filters:")
-			if searchGenre != "" {
-				fmt.Printf(" genre=%s", searchGenre)
+			if filterGenre != "" {
+				fmt.Printf(" genre=%s", filterGenre)
 			}
-			if searchStatus != "" {
-				fmt.Printf(" status=%s", searchStatus)
+			if filterStatus != "" {
+				fmt.Printf(" status=%s", filterStatus)
 			}
 			fmt.Printf(")")
 		}
 		fmt.Println("...")
-		fmt.Printf("\nFound %d results:\n\n", len(filteredMangas))
+		fmt.Println("\nNo manga found matching your search criteria.")
+		fmt.Println("\nSuggestions:")
+		fmt.Println("  - Check spelling and try again")
+		fmt.Println("  - Use broader search terms")
+		if filterGenre != "" || filterStatus != "" {
+			fmt.Println("  - Try removing filters")
+		}
+		fmt.Println("  - Try different keywords")
+		fmt.Println("  - Browse by searching popular titles")
+		return
+	}
 
-		//Print table header (match ranking table width)
-		fmt.Println("┌─────────────────────┬──────────────────────┬──────────────────────┬──────────┬─────────────┐")
-		fmt.Println("│ ID                  │ Title                │ Author               │ Status   │ Chapters    │")
-		fmt.Println("├─────────────────────┼──────────────────────┼──────────────────────┼──────────┼─────────────┤")
+	// Print formatted table output
+	fmt.Printf("\nSearching for \"%s\"", query)
+	if filterGenre != "" || filterStatus != "" {
+		fmt.Printf(" (filters:")
+		if filterGenre != "" {
+			fmt.Printf(" genre=%s", filterGenre)
+		}
+		if filterStatus != "" {
+			fmt.Printf(" status=%s", filterStatus)
+		}
+		fmt.Printf(")")
+	}
+	fmt.Println("...")
+	fmt.Printf("\nFound %d results:\n\n", len(filteredMangas))
 
-		//Print manga rows
-		for _, manga := range filteredMangas {
-			chaptersStr := fmt.Sprintf("%d", manga.TotalChapters)
-			if manga.TotalChapters == 0 {
-				chaptersStr = "Ongoing"
-			}
+	// Print table header (match ranking table width)
+	fmt.Println("┌─────────────────────┬──────────────────────┬──────────────────────┬──────────┬─────────────┐")
+	fmt.Println("│ ID                  │ Title                │ Author               │ Status   │ Chapters    │")
+	fmt.Println("├─────────────────────┼──────────────────────┼──────────────────────┼──────────┼─────────────┤")
 
-			fmt.Printf("│ %-19s │ %-20s │ %-20s │ %-8s │ %-11s │\n",
-				truncateString(manga.ID, 19),
-				truncateString(manga.Title, 20),
-				truncateString(manga.Author, 20),
-				truncateString(manga.Status, 8),
-				chaptersStr)
+	// Print manga rows
+	for _, manga := range filteredMangas {
+		chaptersStr := fmt.Sprintf("%d", manga.TotalChapters)
+		if manga.TotalChapters == 0 {
+			chaptersStr = "Ongoing"
 		}
 
-		fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
-		fmt.Println("\nUse 'mangahub manga info <id>' to view details")
-		fmt.Println("Use 'mangahub library add --manga-id <id>' to add to your library")
+		fmt.Printf("│ %-19s │ %-20s │ %-20s │ %-8s │ %-11s │\n",
+			truncateString(manga.ID, 19),
+			truncateString(manga.Title, 20),
+			truncateString(manga.Author, 20),
+			truncateString(manga.Status, 8),
+			chaptersStr)
+	}
 
-		return nil
-	},
+	fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
+	fmt.Println("\nUse 'mangahub manga info <id>' to view details")
+	fmt.Println("Use 'mangahub library add --manga-id <id>' to add to your library")
+}
+
+func displayRankingResults(mangas []RankingMangaItem, rankingType string) {
+	if len(mangas) == 0 {
+		fmt.Printf("\nNo manga found for ranking type: %s\n", rankingType)
+		fmt.Println("\nAvailable ranking types:")
+		fmt.Println("  - all: Top ranked manga")
+		fmt.Println("  - bypopularity: Most popular manga")
+		fmt.Println("  - favorite: Most favorited manga")
+		return
+	}
+
+	typeLabel := map[string]string{
+		"all":          "Top Ranked Manga",
+		"bypopularity": "Most Popular Manga",
+		"favorite":     "Most Favorited Manga",
+	}
+
+	label := typeLabel[rankingType]
+	if label == "" {
+		label = "Manga Ranking"
+	}
+
+	fmt.Println()
+	fmt.Println("┌─────────────────────────────────────────────────────────────────────┐")
+	boxWidth := 69
+	leftPadding := (boxWidth - len(label)) / 2
+	rightPadding := boxWidth - len(label) - leftPadding
+	fmt.Printf("│%s%s%s│\n", strings.Repeat(" ", leftPadding), label, strings.Repeat(" ", rightPadding))
+	fmt.Println("└─────────────────────────────────────────────────────────────────────┘")
+	fmt.Printf("Found %d results\n\n", len(mangas))
+
+	fmt.Println("┌─────────────────────┬──────────────────────┬──────────────────────┬──────────┬─────────────┐")
+	fmt.Println("│ ID                  │ Title                │ Author               │ Status   │ Chapters    │")
+	fmt.Println("├─────────────────────┼──────────────────────┼──────────────────────┼──────────┼─────────────┤")
+
+	for _, manga := range mangas {
+		title := manga.Title
+		if len(title) > 20 {
+			title = title[:17] + "..."
+		}
+
+		author := manga.Author
+		if len(author) > 20 {
+			author = author[:17] + "..."
+		}
+
+		status := manga.Status
+		if status == "" {
+			status = "?"
+		}
+		if len(status) > 8 {
+			status = status[:5] + "..."
+		}
+
+		chapters := "?"
+		if manga.TotalChapters > 0 {
+			chapters = fmt.Sprintf("%d", manga.TotalChapters)
+		}
+
+		fmt.Printf("│ %-19s │ %-20s │ %-20s │ %-8s │ %-11s │\n",
+			manga.ID, title, author, status, chapters)
+	}
+
+	fmt.Println("└─────────────────────┴──────────────────────┴──────────────────────┴──────────┴─────────────┘")
+	fmt.Println("\nUse 'mangahub manga info <id>' to view details")
+	fmt.Println("Use 'mangahub library add --manga-id <id>' to add to your library")
+	fmt.Println()
 }
 
 var mangaInfoCmd = &cobra.Command{
@@ -643,10 +776,13 @@ var mangaRankingCmd = &cobra.Command{
 		}
 
 		limit := rankingLimit
-		if limit <= 0 || limit > 100 {
-			limit = 100
+		if limit <= 0 || limit > 20 {
+			limit = 20
 		}
 		rankingURL := fmt.Sprintf("%s/manga/ranking?type=%s&limit=%d", serverURL, rankingType, limit)
+		if rankingPage > 0 {
+			rankingURL += fmt.Sprintf("&page=%d", rankingPage)
+		}
 
 		res, err := http.Get(rankingURL)
 		if err != nil {
@@ -665,6 +801,50 @@ var mangaRankingCmd = &cobra.Command{
 			return fmt.Errorf("failed to fetch ranking")
 		}
 
+		type PaginatedMangaResponse struct {
+			Mangas     []RankingMangaItem `json:"mangas"`
+			Pagination struct {
+				Page       int  `json:"page"`
+				Limit      int  `json:"limit"`
+				Total      int  `json:"total"`
+				TotalPages int  `json:"total_pages"`
+				HasNext    bool `json:"has_next"`
+				HasPrev    bool `json:"has_prev"`
+			} `json:"pagination"`
+		}
+
+		// Try to parse as single page response
+		var singlePageResult PaginatedMangaResponse
+		if err := json.Unmarshal(body, &singlePageResult); err == nil && singlePageResult.Pagination.Total >= 0 {
+			displayRankingResults(singlePageResult.Mangas, rankingType)
+
+			// Display pagination info
+			if singlePageResult.Pagination.Total > 0 {
+				fmt.Printf("\nPage %d of %d (Total: %d results)\n",
+					singlePageResult.Pagination.Page,
+					singlePageResult.Pagination.TotalPages,
+					singlePageResult.Pagination.Total)
+				if singlePageResult.Pagination.HasNext {
+					fmt.Printf("Use --page %d to see next page\n", singlePageResult.Pagination.Page+1)
+				}
+			}
+			return nil
+		}
+
+		// Try to parse as multiple pages response
+		var multiPageResult []PaginatedMangaResponse
+		if err := json.Unmarshal(body, &multiPageResult); err == nil && len(multiPageResult) > 0 {
+			var allMangas []RankingMangaItem
+			for _, page := range multiPageResult {
+				allMangas = append(allMangas, page.Mangas...)
+			}
+
+			displayRankingResults(allMangas, rankingType)
+			fmt.Printf("\nShowing all %d pages (%d total results)\n", len(multiPageResult), len(allMangas))
+			return nil
+		}
+
+		// Fallback to old format
 		var result struct {
 			Mangas []struct {
 				ID          int    `json:"id"`
@@ -764,7 +944,8 @@ var mangaRankingCmd = &cobra.Command{
 func init() {
 	mangaSearchCmd.Flags().StringVar(&searchGenre, "genre", "", "Filter by genre (e.g., Action, Romance, Comedy)")
 	mangaSearchCmd.Flags().StringVar(&searchStatus, "status", "", "Filter by status (ongoing, completed, finished)")
-	mangaSearchCmd.Flags().IntVar(&searchLimit, "limit", 100, "Maximum number of results (max 100)")
+	mangaSearchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum number of results per page (max 20)")
+	mangaSearchCmd.Flags().IntVar(&searchPage, "page", 0, "Page number to retrieve (if not set, returns all pages)")
 
 	mangaCmd.AddCommand(mangaSearchCmd)
 	mangaCmd.AddCommand(mangaInfoCmd)
@@ -773,5 +954,6 @@ func init() {
 	mangaCmd.AddCommand(mangaRankingCmd)
 
 	// Flags for ranking command
-	mangaRankingCmd.Flags().IntVar(&rankingLimit, "limit", 100, "Maximum number of results (max 100)")
+	mangaRankingCmd.Flags().IntVar(&rankingLimit, "limit", 20, "Maximum number of results per page (max 20)")
+	mangaRankingCmd.Flags().IntVar(&rankingPage, "page", 0, "Page number to retrieve (if not set, returns all pages)")
 }
