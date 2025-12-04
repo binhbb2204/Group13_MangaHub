@@ -41,7 +41,7 @@ You'll see it running on whatever port you set in `.env` (8080 by default). Keep
 Open another terminal and build your CLI tool:
 ```bash
 go build ./...    (to build all)
-go build -o bin/mangahub.exe cmd/main.go (to build only mangahub)
+go build -o bin/mangahub.exe ./cmd/mangahub/main.go (to build only mangahub)
 ```
 
 **Step 3: Make It Accessible**
