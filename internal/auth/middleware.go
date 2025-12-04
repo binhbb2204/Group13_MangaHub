@@ -30,20 +30,20 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		token := parts[1]
 
 		// Validate token
-		       // Check if token is blacklisted (logout)
-		       if handler, ok := c.MustGet("authHandler").(*Handler); ok {
-			       if _, blacklisted := handler.tokenBlacklist[token]; blacklisted {
-				       c.JSON(http.StatusUnauthorized, gin.H{"error": "Token has been logged out"})
-				       c.Abort()
-				       return
-			       }
-		       }
-		       claims, err := utils.ValidateJWT(token, jwtSecret)
-		       if err != nil {
-			       c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
-			       c.Abort()
-			       return
-		       }
+		// Check if token is blacklisted (logout)
+		if handler, ok := c.MustGet("authHandler").(*Handler); ok {
+			if _, blacklisted := handler.tokenBlacklist[token]; blacklisted {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Token has been logged out"})
+				c.Abort()
+				return
+			}
+		}
+		claims, err := utils.ValidateJWT(token, jwtSecret)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
 
 		// Add user info to context
 		c.Set("user_id", claims.UserID)

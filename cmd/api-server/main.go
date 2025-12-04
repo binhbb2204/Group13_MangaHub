@@ -82,24 +82,24 @@ func main() {
 	router.GET("/readyz", healthHandler.Readyz)
 	router.GET("/metrics", metricsHandler.Metrics)
 
-	       authGroup := router.Group("/auth")
-	       {
-		       authGroup.POST("/register", authHandler.Register)
-		       authGroup.POST("/login", authHandler.Login)
-		       authGroup.POST("/logout", func(c *gin.Context) {
-			       c.Set("authHandler", authHandler)
-			       authHandler.Logout(c)
-		       })
-	       }
+	authGroup := router.Group("/auth")
+	{
+		authGroup.POST("/register", authHandler.Register)
+		authGroup.POST("/login", authHandler.Login)
+		authGroup.POST("/logout", func(c *gin.Context) {
+			c.Set("authHandler", authHandler)
+			authHandler.Logout(c)
+		})
+	}
 
-	       protectedAuth := router.Group("/auth")
-	       protectedAuth.Use(func(c *gin.Context) {
-		       c.Set("authHandler", authHandler)
-		       auth.AuthMiddleware(jwtSecret)(c)
-	       })
-	       {
-		       protectedAuth.POST("/change-password", authHandler.ChangePassword)
-	       }
+	protectedAuth := router.Group("/auth")
+	protectedAuth.Use(func(c *gin.Context) {
+		c.Set("authHandler", authHandler)
+		auth.AuthMiddleware(jwtSecret)(c)
+	})
+	{
+		protectedAuth.POST("/change-password", authHandler.ChangePassword)
+	}
 
 	mangaGroup := router.Group("/manga")
 	{
