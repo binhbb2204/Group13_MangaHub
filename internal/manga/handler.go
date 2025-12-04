@@ -80,6 +80,7 @@ type RankingManga struct {
 	Status      string   `json:"status"`
 	NumChapters int      `json:"num_chapters"`
 	Authors     []Author `json:"authors"`
+	Synopsis    string   `json:"description,omitempty"`
 	CoverURL    string   `json:"cover_url,omitempty"`
 }
 
@@ -637,7 +638,7 @@ func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]Ranki
 	params := url.Values{}
 	params.Add("ranking_type", rankingType)
 	params.Add("limit", fmt.Sprintf("%d", limit))
-	params.Add("fields", "id,title,main_picture,authors{name,first_name,last_name},status,num_chapters")
+	params.Add("fields", "id,title,main_picture,authors{name,first_name,last_name},status,num_chapters,synopsis")
 
 	req, err := http.NewRequest("GET", apiURL+"?"+params.Encode(), nil)
 	if err != nil {
@@ -795,6 +796,7 @@ func (h *Handler) GetRanking(c *gin.Context) {
 				Title:         rm.Title,
 				Status:        rm.Status,
 				TotalChapters: rm.NumChapters,
+				Description:   rm.Synopsis,
 				CoverURL:      rm.CoverURL,
 			}
 			if len(rm.Authors) > 0 {
@@ -843,6 +845,7 @@ func (h *Handler) GetRanking(c *gin.Context) {
 					Title:         rm.Title,
 					Status:        rm.Status,
 					TotalChapters: rm.NumChapters,
+					Description:   rm.Synopsis,
 					CoverURL:      rm.CoverURL,
 				}
 				if len(rm.Authors) > 0 {

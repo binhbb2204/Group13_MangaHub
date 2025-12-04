@@ -58,6 +58,8 @@ func main() {
 	log.Info("tcp_http_bridge_started")
 
 	authHandler := auth.NewHandler(jwtSecret)
+	// Inject authHandler into Gin context for middleware
+	gin.SetMode(gin.ReleaseMode)
 	mangaHandler := manga.NewHandler()
 	userHandler := user.NewHandler(apiBridge)
 	healthHandler := health.NewHandler(apiBridge)
@@ -80,17 +82,24 @@ func main() {
 	router.GET("/readyz", healthHandler.Readyz)
 	router.GET("/metrics", metricsHandler.Metrics)
 
-	authGroup := router.Group("/auth")
-	{
-		authGroup.POST("/register", authHandler.Register)
-		authGroup.POST("/login", authHandler.Login)
-	}
+	       authGroup := router.Group("/auth")
+	       {
+		       authGroup.POST("/register", authHandler.Register)
+		       authGroup.POST("/login", authHandler.Login)
+		       authGroup.POST("/logout", func(c *gin.Context) {
+			       c.Set("authHandler", authHandler)
+			       authHandler.Logout(c)
+		       })
+	       }
 
-	protectedAuth := router.Group("/auth")
-	protectedAuth.Use(auth.AuthMiddleware(jwtSecret))
-	{
-		protectedAuth.POST("/change-password", authHandler.ChangePassword)
-	}
+	       protectedAuth := router.Group("/auth")
+	       protectedAuth.Use(func(c *gin.Context) {
+		       c.Set("authHandler", authHandler)
+		       auth.AuthMiddleware(jwtSecret)(c)
+	       })
+	       {
+		       protectedAuth.POST("/change-password", authHandler.ChangePassword)
+	       }
 
 	mangaGroup := router.Group("/manga")
 	{

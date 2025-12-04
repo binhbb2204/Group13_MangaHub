@@ -17,12 +17,31 @@ import (
 
 type Handler struct {
 	JWTSecret string
+		// In-memory blacklist for demo (production: use Redis or DB)
+		tokenBlacklist map[string]struct{}
 }
 
 func NewHandler(jwtSecret string) *Handler {
-	return &Handler{
-		JWTSecret: jwtSecret,
-	}
+	       return &Handler{
+		       JWTSecret: jwtSecret,
+		       tokenBlacklist: make(map[string]struct{}),
+	       }
+}
+// Logout handler: Blacklist JWT token (demo only)
+func (h *Handler) Logout(c *gin.Context) {
+       authHeader := c.GetHeader("Authorization")
+       if authHeader == "" {
+	       c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+	       return
+       }
+       parts := strings.Split(authHeader, " ")
+       if len(parts) != 2 || parts[0] != "Bearer" {
+	       c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format"})
+	       return
+       }
+       token := parts[1]
+       h.tokenBlacklist[token] = struct{}{}
+       c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }
 
 func (h *Handler) Register(c *gin.Context) {
