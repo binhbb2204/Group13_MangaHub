@@ -114,6 +114,12 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		limit = 20
 	}
 
+	// Default page to 1 if not provided
+	page := req.Page
+	if page <= 0 {
+		page = 1
+	}
+
 	// Get total count first
 	countQuery := `SELECT COUNT(*) FROM manga WHERE 1=1`
 	countArgs := []interface{}{}
@@ -145,10 +151,8 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		return
 	}
 
-	// Check if page parameter is provided
-	if req.Page > 0 {
-		// Return single page
-		offset := (req.Page - 1) * limit
+	// Calculate offset for the requested page
+	offset := (page - 1) * limit
 
 		query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url FROM manga WHERE 1=1`
 		args := []interface{}{}
@@ -217,84 +221,6 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusOK, response)
-	} else {
-		// Return all pages
-		totalPages := (total + limit - 1) / limit
-		var allPagesResponse []models.PaginatedBooksResponse
-
-		for page := 1; page <= totalPages; page++ {
-			offset := (page - 1) * limit
-
-			query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url FROM manga WHERE 1=1`
-			args := []interface{}{}
-
-			if req.Title != "" {
-				query += ` AND title LIKE ?`
-				args = append(args, "%"+req.Title+"%")
-			}
-
-			if req.Author != "" {
-				query += ` AND author LIKE ?`
-				args = append(args, "%"+req.Author+"%")
-			}
-
-			if req.Status != "" {
-				query += ` AND status = ?`
-				args = append(args, req.Status)
-			}
-
-			if req.Genre != "" {
-				query += ` AND genres LIKE ?`
-				args = append(args, "%"+req.Genre+"%")
-			}
-
-			query += ` LIMIT ? OFFSET ?`
-			args = append(args, limit, offset)
-
-			rows, err := database.DB.Query(query, args...)
-			if err != nil {
-				continue
-			}
-
-			var mangas []models.Manga
-			for rows.Next() {
-				var manga models.Manga
-				var genresJSON string
-
-				err := rows.Scan(
-					&manga.ID,
-					&manga.Title,
-					&manga.Author,
-					&genresJSON,
-					&manga.Status,
-					&manga.TotalChapters,
-					&manga.Description,
-					&manga.CoverURL,
-				)
-				if err != nil {
-					continue
-				}
-
-				if genresJSON != "" {
-					json.Unmarshal([]byte(genresJSON), &manga.Genres)
-				}
-
-				mangas = append(mangas, manga)
-			}
-			rows.Close()
-
-			pagination := calculatePagination(page, limit, total)
-
-			pageResponse := models.PaginatedBooksResponse{
-				Mangas:     mangas,
-				Pagination: pagination,
-			}
-
-			allPagesResponse = append(allPagesResponse, pageResponse)
-		}
-
-		c.JSON(http.StatusOK, allPagesResponse)
-	}
 }
 
 // SearchExternal searches manga from external API (MyAnimeList)
@@ -316,7 +242,7 @@ func (h *Handler) SearchExternal(c *gin.Context) {
 	}
 
 	// Parse pagination parameters
-	page := parseIntQuery(c, "page", 0)
+	page := parseIntQuery(c, "page", 1) // Default to page 1
 	requestLimit := parseIntQuery(c, "limit", 0) // 0 means no limit (fetch all)
 	pageSize := 20                               // Fixed page size
 
@@ -331,17 +257,14 @@ func (h *Handler) SearchExternal(c *gin.Context) {
 
 	ctx := context.Background()
 
-	// Check if page parameter is provided
-	if page > 0 {
-		// Return single page - but we need to know the total first
-		// Fetch all results to get accurate total
-		allMangas := []models.Manga{}
-		fetchPage := 1
-		for {
-			fetchOffset := (fetchPage - 1) * 100
-			fetchLimit := 100
+	// Fetch all results to get accurate total and return requested page
+	allMangas := []models.Manga{}
+	fetchPage := 1
+	for {
+		fetchOffset := (fetchPage - 1) * 100
+		fetchLimit := 100
 
-			mangas, err := h.externalSource.Search(ctx, query, fetchLimit, fetchOffset)
+		mangas, err := h.externalSource.Search(ctx, query, fetchLimit, fetchOffset)
 			if err != nil {
 				if strings.Contains(err.Error(), "400") && fetchPage == 1 {
 					pagination := calculatePagination(page, pageSize, 0)
@@ -394,85 +317,6 @@ func (h *Handler) SearchExternal(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusOK, response)
-	} else {
-		// Return all pages - fetch results up to maxResults
-		var allPagesResponse []models.PaginatedBooksResponse
-		currentPage := 1
-		allMangas := []models.Manga{}
-
-		// Fetch manga results up to maxResults
-		for {
-			offset := (currentPage - 1) * 100 // Fetch in larger batches internally
-			fetchLimit := 100
-
-			mangas, err := h.externalSource.Search(ctx, query, fetchLimit, offset)
-			if err != nil {
-				if strings.Contains(err.Error(), "400") {
-					break
-				}
-				// On error, stop fetching
-				break
-			}
-
-			if len(mangas) == 0 {
-				break
-			}
-
-			allMangas = append(allMangas, mangas...)
-
-			// Stop if we've reached the max results
-			if len(allMangas) >= maxResults {
-				allMangas = allMangas[:maxResults]
-				break
-			}
-
-			// If we got less than the fetch limit, we've reached the end
-			if len(mangas) < fetchLimit {
-				break
-			}
-
-			currentPage++
-
-			// Safety limit to prevent infinite loops
-			if currentPage > 50 {
-				break
-			}
-		}
-
-		// Now paginate the results into pages
-		total := len(allMangas)
-		if total == 0 {
-			// Return empty page 1
-			pagination := calculatePagination(1, pageSize, 0)
-			response := models.PaginatedBooksResponse{
-				Mangas:     []models.Manga{},
-				Pagination: pagination,
-			}
-			c.JSON(http.StatusOK, []models.PaginatedBooksResponse{response})
-			return
-		}
-
-		totalPages := (total + pageSize - 1) / pageSize
-		for page := 1; page <= totalPages; page++ {
-			offset := (page - 1) * pageSize
-			end := offset + pageSize
-			if end > total {
-				end = total
-			}
-
-			pageMangas := allMangas[offset:end]
-			pagination := calculatePagination(page, pageSize, total)
-
-			pageResponse := models.PaginatedBooksResponse{
-				Mangas:     pageMangas,
-				Pagination: pagination,
-			}
-
-			allPagesResponse = append(allPagesResponse, pageResponse)
-		}
-
-		c.JSON(http.StatusOK, allPagesResponse)
-	}
 }
 
 // GetMangaInfo gets manga info from external API by ID
@@ -751,7 +595,7 @@ func (h *Handler) GetRanking(c *gin.Context) {
 	rankingType := c.DefaultQuery("type", "all")
 
 	// Parse pagination parameters
-	page := parseIntQuery(c, "page", 0)
+	page := parseIntQuery(c, "page", 1) // Default to page 1
 	requestLimit := parseIntQuery(c, "limit", 0) // 0 means no limit (fetch all)
 	pageSize := 20                               // Fixed page size
 
@@ -764,29 +608,25 @@ func (h *Handler) GetRanking(c *gin.Context) {
 		}
 	}
 
-	// Check if page parameter is provided
-	if page > 0 {
-		// Return single page
-		offset := (page - 1) * pageSize
+	// Fetch all results for the ranking type
+	allMangas, err := h.fetchRanking(clientID, rankingType, maxResults)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-		// Fetch enough to get the requested page (fetch all up to maxResults)
-		allMangas, err := h.fetchRanking(clientID, rankingType, maxResults)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+	// Get the requested page
+	offset := (page - 1) * pageSize
+	var mangas []RankingManga
+	if offset < len(allMangas) {
+		end := offset + pageSize
+		if end > len(allMangas) {
+			end = len(allMangas)
 		}
+		mangas = allMangas[offset:end]
+	}
 
-		// Get the page slice
-		var mangas []RankingManga
-		if offset < len(allMangas) {
-			end := offset + pageSize
-			if end > len(allMangas) {
-				end = len(allMangas)
-			}
-			mangas = allMangas[offset:end]
-		}
-
-		total := len(allMangas)
+	total := len(allMangas)
 
 		// Convert RankingManga to regular Manga for pagination response
 		regularMangas := make([]models.Manga, len(mangas))
@@ -815,57 +655,5 @@ func (h *Handler) GetRanking(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusOK, response)
-	} else {
-		// Return all pages - fetch results up to maxResults
-		allMangas, err := h.fetchRanking(clientID, rankingType, maxResults)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		total := len(allMangas)
-		totalPages := (total + pageSize - 1) / pageSize
-
-		var allPagesResponse []models.PaginatedBooksResponse
-
-		for currentPage := 1; currentPage <= totalPages; currentPage++ {
-			offset := (currentPage - 1) * pageSize
-			end := offset + pageSize
-			if end > total {
-				end = total
-			}
-
-			pageMangas := allMangas[offset:end]
-
-			// Convert RankingManga to regular Manga
-			regularMangas := make([]models.Manga, len(pageMangas))
-			for i, rm := range pageMangas {
-				regularMangas[i] = models.Manga{
-					ID:            fmt.Sprintf("%d", rm.ID),
-					Title:         rm.Title,
-					Status:        rm.Status,
-					TotalChapters: rm.NumChapters,
-					Description:   rm.Synopsis,
-					CoverURL:      rm.CoverURL,
-				}
-				if len(rm.Authors) > 0 {
-					author := strings.TrimSpace(rm.Authors[0].Node.FirstName + " " + rm.Authors[0].Node.LastName)
-					if author != "" {
-						regularMangas[i].Author = author
-					}
-				}
-			}
-
-			pagination := calculatePagination(currentPage, pageSize, total)
-
-			pageResponse := models.PaginatedBooksResponse{
-				Mangas:     regularMangas,
-				Pagination: pagination,
-			}
-
-			allPagesResponse = append(allPagesResponse, pageResponse)
-		}
-
-		c.JSON(http.StatusOK, allPagesResponse)
-	}
 }
+
