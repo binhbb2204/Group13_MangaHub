@@ -1,0 +1,418 @@
+{
+	"info": {
+		"name": "MangaHub API",
+		"description": "Complete API collection for MangaHub - Manga discovery and reading platform",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/health",
+					"host": ["{{baseUrl}}"],
+					"path": ["health"]
+				},
+				"description": "Check if API is running"
+			}
+		},
+		{
+			"name": "Manga",
+			"item": [
+				{
+					"name": "Search Manga (External - MAL)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/search?q=One Piece&page=1&limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "search"],
+							"query": [
+								{
+									"key": "q",
+									"value": "One Piece",
+									"description": "Search query"
+								},
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number"
+								},
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Results per page (max 20)"
+								}
+							]
+						},
+						"description": "Search manga from MyAnimeList API"
+					}
+				},
+				{
+					"name": "Get Manga Info (External - MAL)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/info/13",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "info", "13"]
+						},
+						"description": "Get detailed manga info from MyAnimeList API by MAL ID"
+					}
+				},
+				{
+					"name": "Get Featured Manga",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/featured",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "featured"]
+						},
+						"description": "Get featured manga sections (Top Ranked, Most Popular, Most Favorited)"
+					}
+				},
+				{
+					"name": "Get Manga Ranking",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/ranking?type=all&page=1&limit=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "ranking"],
+							"query": [
+								{
+									"key": "type",
+									"value": "all",
+									"description": "Ranking type: all, bypopularity, favorite"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get manga rankings from MyAnimeList"
+					}
+				},
+				{
+					"name": "Get All Manga (Database)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/all",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "all"]
+						},
+						"description": "Get all manga from local database"
+					}
+				},
+				{
+					"name": "Get Manga by ID (Database)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/13",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "13"]
+						},
+						"description": "Get manga from local database by ID"
+					}
+				}
+			]
+		},
+		{
+			"name": "MangaDex - Chapters & Reading",
+			"item": [
+				{
+					"name": "Get Chapters",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/chapters/a1c7c817-4e59-43b7-9365-09675a149a6f?language=en&limit=100",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "chapters", "a1c7c817-4e59-43b7-9365-09675a149a6f"],
+							"query": [
+								{
+									"key": "language",
+									"value": "en",
+									"description": "Chapter language (en, ja, es, etc.)"
+								},
+								{
+									"key": "limit",
+									"value": "100",
+									"description": "Max chapters to fetch (max 500)"
+								}
+							]
+						},
+						"description": "Get list of available chapters for a manga from MangaDex using MangaDex ID"
+					}
+				},
+				{
+					"name": "Get Chapter Pages",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/manga/chapter/e9fb431b-5a4d-4bf8-9c4a-0510c5eca6d0/pages",
+							"host": ["{{baseUrl}}"],
+							"path": ["manga", "chapter", "e9fb431b-5a4d-4bf8-9c4a-0510c5eca6d0", "pages"]
+						},
+						"description": "Get page image URLs for a specific chapter from MangaDex using chapter ID"
+					}
+				}
+			]
+		},
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"testuser\",\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						},
+						"description": "Register a new user account"
+					}
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('token', jsonData.token);",
+									"    console.log('Token saved:', jsonData.token);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						},
+						"description": "Login and get JWT token (automatically saves to collection variable)"
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "logout"]
+						},
+						"description": "Logout (requires authentication)"
+					}
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"old_password\": \"password123\",\n  \"new_password\": \"newpassword123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/change-password",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "change-password"]
+						},
+						"description": "Change user password (requires authentication)"
+					}
+				}
+			]
+		},
+		{
+			"name": "User Library & Progress",
+			"item": [
+				{
+					"name": "Get User Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["users", "me"]
+						},
+						"description": "Get current user profile (requires authentication)"
+					}
+				},
+				{
+					"name": "Add to Library",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"manga_id\": \"13\",\n  \"status\": \"reading\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/users/library",
+							"host": ["{{baseUrl}}"],
+							"path": ["users", "library"]
+						},
+						"description": "Add manga to library. Status: reading, completed, plan_to_read, on_hold, dropped"
+					}
+				},
+				{
+					"name": "Get Library",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users/library?status=reading",
+							"host": ["{{baseUrl}}"],
+							"path": ["users", "library"],
+							"query": [
+								{
+									"key": "status",
+									"value": "reading",
+									"description": "Filter by status (optional)"
+								}
+							]
+						},
+						"description": "Get user's manga library"
+					}
+				},
+				{
+					"name": "Update Progress",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"manga_id\": \"13\",\n  \"current_chapter\": 10,\n  \"status\": \"reading\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/users/progress",
+							"host": ["{{baseUrl}}"],
+							"path": ["users", "progress"]
+						},
+						"description": "Update reading progress for a manga"
+					}
+				},
+				{
+					"name": "Remove from Library",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users/library/13",
+							"host": ["{{baseUrl}}"],
+							"path": ["users", "library", "13"]
+						},
+						"description": "Remove manga from library"
+					}
+				}
+			]
+		}
+	]
+}

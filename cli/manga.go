@@ -409,6 +409,7 @@ var mangaInfoCmd = &cobra.Command{
 			TotalChapters     int                      `json:"total_chapters"`
 			Description       string                   `json:"description"`
 			CoverURL          string                   `json:"cover_url"`
+			MangaDexID        string                   `json:"mangadex_id"`
 			AlternativeTitles map[string]interface{}   `json:"alternative_titles"`
 			StartDate         string                   `json:"start_date"`
 			EndDate           string                   `json:"end_date"`
@@ -533,7 +534,11 @@ var mangaInfoCmd = &cobra.Command{
 		if manga.ID != "" {
 			fmt.Printf("MyAnimeList: https://myanimelist.net/manga/%s\n", manga.ID)
 		}
-		fmt.Printf("MangaDex (search): https://mangadex.org/titles?q=%s\n", url.QueryEscape(manga.Title))
+		if manga.MangaDexID != "" {
+			fmt.Printf("MangaDex: https://mangadex.org/title/%s\n", manga.MangaDexID)
+		} else {
+			fmt.Printf("MangaDex (search): https://mangadex.org/titles?q=%s\n", url.QueryEscape(manga.Title))
+		}
 
 		fmt.Println("\nActions:")
 		fmt.Printf("Add to Library: mangahub library add --manga-id %s --status reading\n", mangaID)
@@ -941,17 +946,176 @@ var mangaRankingCmd = &cobra.Command{
 	},
 }
 
+var mangaChaptersCmd = &cobra.Command{
+	Use:   "chapters <mangadex-id>",
+	Short: "List chapters for a manga from MangaDex",
+	Long:  `List available chapters for a manga using its MangaDex ID.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mangaDexID := args[0]
+		language, _ := cmd.Flags().GetString("language")
+		limit, _ := cmd.Flags().GetInt("limit")
+
+		fmt.Printf("\nFetching chapters for MangaDex ID: %s\n", mangaDexID)
+		fmt.Printf("Language: %s\n\n", language)
+
+		// Direct MangaDex API call (no server needed)
+		apiURL := fmt.Sprintf("https://api.mangadex.org/manga/%s/feed?translatedLanguage[]=%s&limit=%d&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive",
+			mangaDexID, language, limit)
+
+		res, err := http.Get(apiURL)
+		if err != nil {
+			printError("Failed to fetch chapters from MangaDex")
+			return err
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			printError(fmt.Sprintf("MangaDex API error: %s", res.Status))
+			return fmt.Errorf("API error")
+		}
+
+		var response struct {
+			Data []struct {
+				ID         string `json:"id"`
+				Attributes struct {
+					Chapter  string `json:"chapter"`
+					Title    string `json:"title"`
+					Pages    int    `json:"pages"`
+					Volume   string `json:"volume"`
+					Language string `json:"translatedLanguage"`
+				} `json:"attributes"`
+			} `json:"data"`
+		}
+
+		body, _ := io.ReadAll(res.Body)
+		if err := json.Unmarshal(body, &response); err != nil {
+			printError("Failed to parse response")
+			return err
+		}
+
+		if len(response.Data) == 0 {
+			fmt.Println("No chapters found")
+			return nil
+		}
+
+		fmt.Printf("Found %d chapters:\n\n", len(response.Data))
+
+		// Table header
+		fmt.Println("┌──────────┬──────────┬────────┬──────────────────────────────────────────────┐")
+		fmt.Println("│ Chapter  │ Volume   │ Pages  │ Title                                        │")
+		fmt.Println("├──────────┼──────────┼────────┼──────────────────────────────────────────────┤")
+
+		for _, chapter := range response.Data {
+			ch := chapter.Attributes.Chapter
+			vol := chapter.Attributes.Volume
+			title := chapter.Attributes.Title
+
+			if ch == "" {
+				ch = "N/A"
+			}
+			if vol == "" {
+				vol = "N/A"
+			}
+			if title == "" {
+				title = "-"
+			}
+
+			// Truncate title if too long
+			if len(title) > 44 {
+				title = title[:41] + "..."
+			}
+
+			fmt.Printf("│ %-8s │ %-8s │ %-6d │ %-44s │\n",
+				ch, vol, chapter.Attributes.Pages, title)
+		}
+
+		fmt.Println("└──────────┴──────────┴────────┴──────────────────────────────────────────┘")
+
+		fmt.Println("\nTo read a chapter:")
+		fmt.Printf("  mangahub manga read %s <chapter-id>\n", mangaDexID)
+		fmt.Println("\nOr read online:")
+		fmt.Printf("  https://mangadex.org/title/%s\n", mangaDexID)
+
+		return nil
+	},
+}
+
+var mangaReadCmd = &cobra.Command{
+	Use:   "read <chapter-id>",
+	Short: "Get page URLs for a chapter from MangaDex",
+	Long:  `Get the page image URLs for a specific chapter. CLI will show URLs, you can open them in browser.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		chapterID := args[0]
+
+		fmt.Printf("\nFetching chapter pages: %s\n\n", chapterID)
+
+		// Direct MangaDex API call
+		apiURL := fmt.Sprintf("https://api.mangadex.org/at-home/server/%s", chapterID)
+
+		res, err := http.Get(apiURL)
+		if err != nil {
+			printError("Failed to fetch chapter from MangaDex")
+			return err
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			printError(fmt.Sprintf("MangaDex API error: %s", res.Status))
+			return fmt.Errorf("API error")
+		}
+
+		var response struct {
+			BaseURL string `json:"baseUrl"`
+			Chapter struct {
+				Hash string   `json:"hash"`
+				Data []string `json:"data"`
+			} `json:"chapter"`
+		}
+
+		body, _ := io.ReadAll(res.Body)
+		if err := json.Unmarshal(body, &response); err != nil {
+			printError("Failed to parse response")
+			return err
+		}
+
+		fmt.Printf("Chapter has %d pages\n\n", len(response.Chapter.Data))
+		fmt.Println("Page URLs:")
+		fmt.Println("─────────────────────────────────────────────────────────────────────────")
+
+		for i, page := range response.Chapter.Data {
+			pageURL := fmt.Sprintf("%s/data/%s/%s", response.BaseURL, response.Chapter.Hash, page)
+			fmt.Printf("Page %d: %s\n", i+1, pageURL)
+		}
+
+		fmt.Println("─────────────────────────────────────────────────────────────────────────")
+		fmt.Println("\nYou can:")
+		fmt.Println("  - Copy these URLs and open in browser")
+		fmt.Println("  - Download images using wget/curl")
+		fmt.Printf("  - Read online: https://mangadex.org/chapter/%s\n", chapterID)
+
+		return nil
+	},
+}
+
 func init() {
 	mangaSearchCmd.Flags().StringVar(&searchGenre, "genre", "", "Filter by genre (e.g., Action, Romance, Comedy)")
 	mangaSearchCmd.Flags().StringVar(&searchStatus, "status", "", "Filter by status (ongoing, completed, finished)")
 	mangaSearchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum number of results per page (max 20)")
 	mangaSearchCmd.Flags().IntVar(&searchPage, "page", 0, "Page number to retrieve (if not set, returns all pages)")
 
+	// Flags for chapters command
+	mangaChaptersCmd.Flags().String("language", "en", "Chapter language (e.g., en, ja, es)")
+	mangaChaptersCmd.Flags().Int("limit", 100, "Maximum number of chapters to fetch")
+
 	mangaCmd.AddCommand(mangaSearchCmd)
 	mangaCmd.AddCommand(mangaInfoCmd)
 	mangaCmd.AddCommand(mangaListCmd)
 	mangaCmd.AddCommand(mangaFeaturedCmd)
 	mangaCmd.AddCommand(mangaRankingCmd)
+	mangaCmd.AddCommand(mangaChaptersCmd)
+	mangaCmd.AddCommand(mangaReadCmd)
 
 	// Flags for ranking command
 	mangaRankingCmd.Flags().IntVar(&rankingLimit, "limit", 20, "Maximum number of results per page (max 20)")

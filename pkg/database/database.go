@@ -63,7 +63,8 @@ func createTables() error {
         status TEXT,
         total_chapters INTEGER DEFAULT 0,
         description TEXT,
-        cover_url TEXT
+        cover_url TEXT,
+        mangadex_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS user_progress (
@@ -99,6 +100,9 @@ func createTables() error {
 	if err := ensureUserEmailColumn(); err != nil {
 		return err
 	}
+	if err := ensureMangaDexIDColumn(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -125,6 +129,34 @@ func ensureUserEmailColumn() error {
 	if !hasEmail {
 		if _, err := DB.Exec(`ALTER TABLE users ADD COLUMN email TEXT UNIQUE;`); err != nil {
 			log.Printf("Warning: adding email column failed: %v", err)
+		}
+	}
+	return nil
+}
+
+func ensureMangaDexIDColumn() error {
+	rows, err := DB.Query(`PRAGMA table_info(manga);`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	hasMangaDexID := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, "mangadex_id") {
+			hasMangaDexID = true
+			break
+		}
+	}
+	if !hasMangaDexID {
+		if _, err := DB.Exec(`ALTER TABLE manga ADD COLUMN mangadex_id TEXT;`); err != nil {
+			log.Printf("Warning: adding mangadex_id column failed: %v", err)
 		}
 	}
 	return nil

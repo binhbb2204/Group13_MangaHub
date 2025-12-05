@@ -25,9 +25,375 @@ type MALSource struct {
 }
 
 type MangaDexSource struct {
-	BaseURL string
-	Token   string
-	Client  *http.Client
+	BaseURL  string
+	ClientID string
+	Client   *http.Client
+}
+
+func NewMangaDexSource() *MangaDexSource {
+	return &MangaDexSource{
+		BaseURL:  "https://api.mangadex.org",
+		ClientID: strings.TrimSpace(os.Getenv("MANGADEX_CLIENT_ID")),
+		Client:   &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+type mangaDexSearchResponse struct {
+	Data []struct {
+		ID         string `json:"id"`
+		Type       string `json:"type"`
+		Attributes struct {
+			Title         map[string]string   `json:"title"`
+			AltTitles     []map[string]string `json:"altTitles"`
+			Description   map[string]string   `json:"description"`
+			Status        string              `json:"status"`
+			Year          int                 `json:"year"`
+			ContentRating string              `json:"contentRating"`
+			Tags          []struct {
+				Attributes struct {
+					Name map[string]string `json:"name"`
+				} `json:"attributes"`
+			} `json:"tags"`
+		} `json:"attributes"`
+		Relationships []struct {
+			Type       string                 `json:"type"`
+			ID         string                 `json:"id"`
+			Attributes map[string]interface{} `json:"attributes"`
+		} `json:"relationships"`
+	} `json:"data"`
+}
+
+func (m *MangaDexSource) Search(ctx context.Context, query string, limit, offset int) ([]models.Manga, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	u, _ := url.Parse(m.BaseURL + "/manga")
+	qs := u.Query()
+	qs.Set("title", query)
+	qs.Set("limit", fmt.Sprintf("%d", limit))
+	qs.Set("offset", fmt.Sprintf("%d", offset))
+	qs.Set("includes[]", "author")
+	qs.Set("includes[]", "artist")
+	qs.Set("includes[]", "cover_art")
+	u.RawQuery = qs.Encode()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req.Header.Set("User-Agent", "MangaHub/1.0")
+
+	res, err := m.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MangaDex API request failed: %s", res.Status)
+	}
+
+	var r mangaDexSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+		return nil, err
+	}
+
+	out := make([]models.Manga, 0, len(r.Data))
+	for _, d := range r.Data {
+		manga := convertMangaDexToManga(d)
+		out = append(out, manga)
+	}
+	return out, nil
+}
+
+func (m *MangaDexSource) GetMangaByID(ctx context.Context, id string) (*models.Manga, error) {
+	u, _ := url.Parse(fmt.Sprintf("%s/manga/%s", m.BaseURL, id))
+	qs := u.Query()
+	qs.Set("includes[]", "author")
+	qs.Set("includes[]", "artist")
+	qs.Set("includes[]", "cover_art")
+	u.RawQuery = qs.Encode()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req.Header.Set("User-Agent", "MangaHub/1.0")
+
+	res, err := m.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MangaDex API request failed: %s", res.Status)
+	}
+
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Type       string `json:"type"`
+			Attributes struct {
+				Title         map[string]string   `json:"title"`
+				AltTitles     []map[string]string `json:"altTitles"`
+				Description   map[string]string   `json:"description"`
+				Status        string              `json:"status"`
+				Year          int                 `json:"year"`
+				ContentRating string              `json:"contentRating"`
+				Tags          []struct {
+					Attributes struct {
+						Name map[string]string `json:"name"`
+					} `json:"attributes"`
+				} `json:"tags"`
+			} `json:"attributes"`
+			Relationships []struct {
+				Type       string                 `json:"type"`
+				ID         string                 `json:"id"`
+				Attributes map[string]interface{} `json:"attributes"`
+			} `json:"relationships"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	manga := convertMangaDexToManga(response.Data)
+	return &manga, nil
+}
+
+func convertMangaDexToManga(data interface{}) models.Manga {
+	var id, title, author, description, status, coverURL, mangaDexID string
+	genres := []string{}
+
+	// Type assertion to handle the struct
+	type MangaData struct {
+		ID         string `json:"id"`
+		Type       string `json:"type"`
+		Attributes struct {
+			Title         map[string]string   `json:"title"`
+			AltTitles     []map[string]string `json:"altTitles"`
+			Description   map[string]string   `json:"description"`
+			Status        string              `json:"status"`
+			Year          int                 `json:"year"`
+			ContentRating string              `json:"contentRating"`
+			Tags          []struct {
+				Attributes struct {
+					Name map[string]string `json:"name"`
+				} `json:"attributes"`
+			} `json:"tags"`
+		} `json:"attributes"`
+		Relationships []struct {
+			Type       string                 `json:"type"`
+			ID         string                 `json:"id"`
+			Attributes map[string]interface{} `json:"attributes"`
+		} `json:"relationships"`
+	}
+
+	var d MangaData
+	// Convert data to JSON and back to struct
+	jsonData, _ := json.Marshal(data)
+	json.Unmarshal(jsonData, &d)
+
+	id = d.ID
+	mangaDexID = d.ID
+
+	// Get title (prefer English, fallback to first available)
+	if enTitle, ok := d.Attributes.Title["en"]; ok && enTitle != "" {
+		title = enTitle
+	} else {
+		for _, t := range d.Attributes.Title {
+			if t != "" {
+				title = t
+				break
+			}
+		}
+	}
+
+	// Get description (prefer English)
+	if enDesc, ok := d.Attributes.Description["en"]; ok {
+		description = enDesc
+	} else {
+		for _, desc := range d.Attributes.Description {
+			if desc != "" {
+				description = desc
+				break
+			}
+		}
+	}
+
+	// Get status
+	status = strings.ToLower(d.Attributes.Status)
+	if status == "completed" {
+		status = "completed"
+	} else if status == "ongoing" {
+		status = "ongoing"
+	}
+
+	// Get author
+	for _, rel := range d.Relationships {
+		if rel.Type == "author" {
+			if name, ok := rel.Attributes["name"].(string); ok {
+				author = name
+				break
+			}
+		}
+	}
+
+	// Get cover
+	for _, rel := range d.Relationships {
+		if rel.Type == "cover_art" {
+			if fileName, ok := rel.Attributes["fileName"].(string); ok {
+				coverURL = fmt.Sprintf("https://uploads.mangadex.org/covers/%s/%s.256.jpg", id, fileName)
+				break
+			}
+		}
+	}
+
+	// Get genres/tags
+	for _, tag := range d.Attributes.Tags {
+		if enName, ok := tag.Attributes.Name["en"]; ok && enName != "" {
+			genres = append(genres, enName)
+		}
+	}
+
+	return models.Manga{
+		ID:          id,
+		MangaDexID:  mangaDexID,
+		Title:       title,
+		Author:      author,
+		Genres:      genres,
+		Status:      status,
+		Description: description,
+		CoverURL:    coverURL,
+	}
+}
+
+// Chapter represents a manga chapter from MangaDex
+type Chapter struct {
+	ID         string `json:"id"`
+	Chapter    string `json:"chapter"`
+	Title      string `json:"title"`
+	Pages      int    `json:"pages"`
+	Volume     string `json:"volume"`
+	Language   string `json:"language"`
+	ReadableAt string `json:"readableAt"`
+}
+
+// GetChapters fetches chapters for a manga from MangaDex
+func (m *MangaDexSource) GetChapters(ctx context.Context, mangaDexID string, language string, limit int) ([]Chapter, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if language == "" {
+		language = "en"
+	}
+
+	u, _ := url.Parse(fmt.Sprintf("%s/manga/%s/feed", m.BaseURL, mangaDexID))
+	qs := u.Query()
+	qs.Add("translatedLanguage[]", language)
+	qs.Set("limit", fmt.Sprintf("%d", limit))
+	qs.Set("order[chapter]", "asc")
+	qs.Add("contentRating[]", "safe")
+	qs.Add("contentRating[]", "suggestive")
+	u.RawQuery = qs.Encode()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req.Header.Set("User-Agent", "MangaHub/1.0")
+
+	res, err := m.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MangaDex API request failed: %s", res.Status)
+	}
+
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Type       string `json:"type"`
+			Attributes struct {
+				Chapter        string `json:"chapter"`
+				Title          string `json:"title"`
+				Pages          int    `json:"pages"`
+				Volume         string `json:"volume"`
+				TranslatedLang string `json:"translatedLanguage"`
+				ReadableAt     string `json:"readableAt"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	chapters := make([]Chapter, 0, len(response.Data))
+	for _, d := range response.Data {
+		// Only include chapters that have actual pages available
+		if d.Attributes.Pages > 0 {
+			chapters = append(chapters, Chapter{
+				ID:         d.ID,
+				Chapter:    d.Attributes.Chapter,
+				Title:      d.Attributes.Title,
+				Pages:      d.Attributes.Pages,
+				Volume:     d.Attributes.Volume,
+				Language:   d.Attributes.TranslatedLang,
+				ReadableAt: d.Attributes.ReadableAt,
+			})
+		}
+	}
+
+	return chapters, nil
+}
+
+// ChapterPages represents the page URLs for a chapter
+type ChapterPages struct {
+	BaseURL string   `json:"baseUrl"`
+	Hash    string   `json:"hash"`
+	Data    []string `json:"data"` // Page filenames
+}
+
+// GetChapterPages fetches the page URLs for a specific chapter
+func (m *MangaDexSource) GetChapterPages(ctx context.Context, chapterID string) (*ChapterPages, error) {
+	u := fmt.Sprintf("%s/at-home/server/%s", m.BaseURL, chapterID)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req.Header.Set("User-Agent", "MangaHub/1.0")
+
+	res, err := m.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MangaDex API request failed: %s", res.Status)
+	}
+
+	var response struct {
+		BaseURL string `json:"baseUrl"`
+		Chapter struct {
+			Hash string   `json:"hash"`
+			Data []string `json:"data"`
+		} `json:"chapter"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	return &ChapterPages{
+		BaseURL: response.BaseURL,
+		Hash:    response.Chapter.Hash,
+		Data:    response.Chapter.Data,
+	}, nil
+}
+
+// GetPageURL constructs the full URL for a manga page
+func (cp *ChapterPages) GetPageURL(pageIndex int) string {
+	if pageIndex < 0 || pageIndex >= len(cp.Data) {
+		return ""
+	}
+	return fmt.Sprintf("%s/data/%s/%s", cp.BaseURL, cp.Hash, cp.Data[pageIndex])
 }
 
 func NewMALSource() *MALSource {
@@ -256,7 +622,7 @@ func convertMALDetailToManga(r malMangaDetailRes) models.Manga {
 		statusLower = "completed"
 	}
 
-	return models.Manga{
+	manga := models.Manga{
 		ID:                fmt.Sprintf("%d", r.ID),
 		Title:             r.Title,
 		Author:            authorName,
@@ -279,6 +645,11 @@ func convertMALDetailToManga(r malMangaDetailRes) models.Manga {
 		Serialization:     serializationList,
 		Background:        r.Background,
 	}
+
+	// Fetch MangaDex ID
+	manga.MangaDexID = fetchMangaDexID(r.Title)
+
+	return manga
 }
 
 func convertMALToManga(id int, title string, mainPicture interface{}, altTitles interface{},
@@ -335,7 +706,7 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 		statusLower = "completed"
 	}
 
-	return models.Manga{
+	manga := models.Manga{
 		ID:            fmt.Sprintf("%d", id),
 		Title:         title,
 		Author:        authorName,
@@ -345,6 +716,28 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 		Description:   synopsis,
 		CoverURL:      coverURL,
 	}
+
+	// Fetch MangaDex ID
+	manga.MangaDexID = fetchMangaDexID(title)
+
+	return manga
+}
+
+func fetchMangaDexID(title string) string {
+	if title == "" {
+		return ""
+	}
+
+	mangadex := NewMangaDexSource()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	results, err := mangadex.Search(ctx, title, 1, 0)
+	if err != nil || len(results) == 0 {
+		return ""
+	}
+
+	return results[0].MangaDexID
 }
 
 func NewExternalSourceFromEnv() (ExternalSource, error) {

@@ -107,9 +107,13 @@ func main() {
 		mangaGroup.GET("/all", mangaHandler.GetAllManga)
 		mangaGroup.GET("/search", mangaHandler.SearchExternal)
 		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo)
-		mangaGroup.GET("/:id", mangaHandler.GetMangaByID)
 		mangaGroup.GET("/featured", mangaHandler.GetFeaturedManga)
 		mangaGroup.GET("/ranking", mangaHandler.GetRanking)
+		// MangaDex chapter routes (must be before /:id to avoid conflicts)
+		mangaGroup.GET("/chapters/:mangadexId", mangaHandler.GetChapters)
+		mangaGroup.GET("/chapter/:chapterId/pages", mangaHandler.GetChapterPages)
+		// Generic ID route must be last
+		mangaGroup.GET("/:id", mangaHandler.GetMangaByID)
 		// Protected routes
 		protected := mangaGroup.Group("")
 		protected.Use(auth.AuthMiddleware(jwtSecret))
