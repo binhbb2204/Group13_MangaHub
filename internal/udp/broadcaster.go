@@ -8,9 +8,10 @@ import (
 )
 
 type Broadcaster struct {
-	conn   *net.UDPConn
-	subMgr *SubscriberManager
-	log    *logger.Logger
+	conn          *net.UDPConn
+	subMgr        *SubscriberManager
+	log           *logger.Logger
+	unifiedBridge *bridge.UnifiedBridge
 }
 
 func NewBroadcaster(conn *net.UDPConn, subMgr *SubscriberManager, log *logger.Logger) *Broadcaster {
@@ -19,6 +20,11 @@ func NewBroadcaster(conn *net.UDPConn, subMgr *SubscriberManager, log *logger.Lo
 		subMgr: subMgr,
 		log:    log,
 	}
+}
+
+func (b *Broadcaster) SetBridge(ub *bridge.UnifiedBridge) {
+	b.unifiedBridge = ub
+	b.log.Info("udp_broadcaster_bridge_set")
 }
 
 func (b *Broadcaster) BroadcastToUser(userID string, event bridge.BroadcastEvent) {
@@ -57,6 +63,46 @@ func (b *Broadcaster) BroadcastToUser(userID string, event bridge.BroadcastEvent
 		"total_devices", len(subscribers))
 }
 
+func (b *Broadcaster) BroadcastUnifiedEvent(userID string, event bridge.UnifiedEvent) {
+	subscribers := b.subMgr.GetSubscribers(userID, string(event.Type))
+
+	if len(subscribers) == 0 {
+		b.log.Debug("no_udp_subscribers",
+			"user_id", userID,
+			"event_type", event.Type)
+		return
+	}
+
+	messageBytes := CreateNotificationMessage(userID, string(event.Type), event.Data)
+
+	successCount := 0
+	failCount := 0
+
+	for _, sub := range subscribers {
+		_, writeErr := b.conn.WriteToUDP(messageBytes, sub.Addr)
+		if writeErr != nil {
+			failCount++
+			b.log.Warn("broadcast_failed",
+				"user_id", userID,
+				"addr", sub.Addr.String(),
+				"error", writeErr.Error())
+		} else {
+			successCount++
+		}
+	}
+
+	b.log.Info("udp_unified_broadcast_complete",
+		"user_id", userID,
+		"event_type", event.Type,
+		"success_count", successCount,
+		"fail_count", failCount,
+		"total_devices", len(subscribers))
+}
+
 func (b *Broadcaster) BroadcastToAll(event bridge.BroadcastEvent) {
 	b.log.Info("broadcasting_to_all", "event_type", event.EventType)
+}
+
+func (b *Broadcaster) GetSubscriberCount(userID string) int {
+	return len(b.subMgr.GetSubscribers(userID, "all"))
 }

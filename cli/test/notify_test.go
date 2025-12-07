@@ -13,7 +13,7 @@ import (
 )
 
 func startTestUDPServer(t *testing.T, port int) (*udp.Server, func()) {
-	server := udp.NewServer(fmt.Sprintf("%d", port), nil)
+	server := udp.NewServer(fmt.Sprintf("%d", port))
 
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start test UDP server: %v", err)

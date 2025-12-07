@@ -14,7 +14,7 @@ import (
 func TestServerStartStop(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19091", nil)
+	server := udp.NewServer("19091")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestServerStartStop(t *testing.T) {
 func TestServerStartWithInvalidPort(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("invalid-port", nil)
+	server := udp.NewServer("invalid-port")
 	err := server.Start()
 	if err == nil {
 		server.Stop()
@@ -40,7 +40,7 @@ func TestServerStartWithInvalidPort(t *testing.T) {
 func TestServerRegister(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19092", nil)
+	server := udp.NewServer("19092")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestServerRegister(t *testing.T) {
 func TestServerRegisterInvalidToken(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19093", nil)
+	server := udp.NewServer("19093")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestServerRegisterInvalidToken(t *testing.T) {
 func TestServerUnregister(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19094", nil)
+	server := udp.NewServer("19094")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestServerUnregister(t *testing.T) {
 func TestServerSubscribe(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19095", nil)
+	server := udp.NewServer("19095")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestServerSubscribe(t *testing.T) {
 func TestServerHeartbeat(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19096", nil)
+	server := udp.NewServer("19096")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

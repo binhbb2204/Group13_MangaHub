@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/gin-gonic/gin"
@@ -28,23 +29,34 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	manager   *Manager
-	handler   *Handler
-	db        *sql.DB
-	jwtSecret string
+	manager     *Manager
+	handler     *Handler
+	db          *sql.DB
+	jwtSecret   string
+	broadcaster *WSBroadcaster
+	bridge      *bridge.UnifiedBridge
 }
 
 func NewServer(db *sql.DB, jwtSecret string) *Server {
 	manager := NewManager()
 	handler := NewHandler(db, manager)
+	broadcaster := NewWSBroadcaster(manager, logger.GetLogger())
 	go manager.Run()
 
 	return &Server{
-		manager:   manager,
-		handler:   handler,
-		db:        db,
-		jwtSecret: jwtSecret,
+		manager:     manager,
+		handler:     handler,
+		db:          db,
+		jwtSecret:   jwtSecret,
+		broadcaster: broadcaster,
+		bridge:      nil,
 	}
+}
+
+func (s *Server) SetBridge(b *bridge.UnifiedBridge) {
+	s.bridge = b
+	s.broadcaster.SetBridge(b)
+	logger.Info("ws_server_bridge_set")
 }
 
 func (s *Server) HandleWebSocket(c *gin.Context) {
@@ -78,6 +90,13 @@ func (s *Server) HandleWebSocket(c *gin.Context) {
 
 	s.manager.register <- client
 
+	connID := ""
+	if s.bridge != nil {
+		connID = s.bridge.RegisterProtocolClient(conn, claims.UserID, bridge.ProtocolWebSocket)
+		s.broadcaster.RegisterConnection(connID, client)
+		logger.Info("ws_client_registered_with_bridge", "user_id", claims.UserID, "conn_id", connID)
+	}
+
 	id, _ := utils.GenerateID(16)
 	presenceMsg := ServerMessage{ID: id, Type: MessageTypePresence, From: "system", Room: "global", Content: claims.Username + " joined the chat", Timestamp: time.Now()}
 	if data, err := json.Marshal(presenceMsg); err == nil {
@@ -85,7 +104,7 @@ func (s *Server) HandleWebSocket(c *gin.Context) {
 	}
 
 	go client.WritePump()
-	go client.ReadPump()
+	go client.ReadPump(connID, s.bridge, s.broadcaster)
 }
 
 func (s *Server) GetActiveUsers() []string {

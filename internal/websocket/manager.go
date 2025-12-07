@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/metrics"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
@@ -170,8 +171,12 @@ func (m *Manager) SendToUser(userID string, message []byte) bool {
 	}
 }
 
-func (c *Client) ReadPump() {
+func (c *Client) ReadPump(connID string, bridge *bridge.UnifiedBridge, broadcaster *WSBroadcaster) {
 	defer func() {
+		if bridge != nil && connID != "" {
+			bridge.UnregisterProtocolClient(connID, c.ID)
+			broadcaster.UnregisterConnection(connID)
+		}
 		c.Manager.unregister <- c
 		c.Conn.Close()
 	}()

@@ -15,7 +15,7 @@ import (
 func TestConcurrentConnections(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19200", nil)
+	server := udp.NewServer("19200")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestConcurrentConnections(t *testing.T) {
 func TestHighFrequencyHeartbeats(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19201", nil)
+	server := udp.NewServer("19201")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestHighFrequencyHeartbeats(t *testing.T) {
 func TestSessionLoad(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19202", nil)
+	server := udp.NewServer("19202")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestSessionLoad(t *testing.T) {
 func TestConnectionChurn(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19203", nil)
+	server := udp.NewServer("19203")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestConnectionChurn(t *testing.T) {
 func TestScalabilityMetrics(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19204", nil)
+	server := udp.NewServer("19204")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

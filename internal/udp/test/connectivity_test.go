@@ -14,7 +14,7 @@ import (
 func TestEndToEndConnectivity(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19100", nil)
+	server := udp.NewServer("19100")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestEndToEndConnectivity(t *testing.T) {
 func TestIPv4Connectivity(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19101", nil)
+	server := udp.NewServer("19101")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestIPv4Connectivity(t *testing.T) {
 func TestLocalhostConnectivity(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19102", nil)
+	server := udp.NewServer("19102")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestLocalhostConnectivity(t *testing.T) {
 func TestMultipleClientsConnectivity(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19103", nil)
+	server := udp.NewServer("19103")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestMultipleClientsConnectivity(t *testing.T) {
 func TestConnectionTimeout(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19104", nil)
+	server := udp.NewServer("19104")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

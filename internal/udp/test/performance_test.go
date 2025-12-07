@@ -15,7 +15,7 @@ import (
 func BenchmarkRegister(b *testing.B) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19400", nil)
+	server := udp.NewServer("19400")
 	if err := server.Start(); err != nil {
 		b.Fatalf("Failed to start server: %v", err)
 	}
@@ -53,7 +53,7 @@ func BenchmarkRegister(b *testing.B) {
 func BenchmarkHeartbeat(b *testing.B) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19401", nil)
+	server := udp.NewServer("19401")
 	if err := server.Start(); err != nil {
 		b.Fatalf("Failed to start server: %v", err)
 	}
@@ -96,7 +96,7 @@ func BenchmarkHeartbeat(b *testing.B) {
 func TestThroughput(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19402", nil)
+	server := udp.NewServer("19402")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestThroughput(t *testing.T) {
 func TestLatency(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19403", nil)
+	server := udp.NewServer("19403")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestLatency(t *testing.T) {
 func TestConcurrentThroughput(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19404", nil)
+	server := udp.NewServer("19404")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

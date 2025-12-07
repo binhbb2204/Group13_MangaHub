@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"strings"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	pb "github.com/binhbb2204/Manga-Hub-Group13/proto/manga"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -12,11 +14,23 @@ import (
 
 type Server struct {
 	pb.UnimplementedMangaServiceServer
-	DB *sql.DB
+	DB          *sql.DB
+	broadcaster *GRPCBroadcaster
+	bridge      *bridge.UnifiedBridge
 }
 
 func NewServer(db *sql.DB) *Server {
-	return &Server{DB: db}
+	broadcaster := NewGRPCBroadcaster(logger.GetLogger())
+	return &Server{
+		DB:          db,
+		broadcaster: broadcaster,
+		bridge:      nil,
+	}
+}
+
+func (s *Server) SetBridge(b *bridge.UnifiedBridge) {
+	s.bridge = b
+	s.broadcaster.SetBridge(b)
 }
 
 func (s *Server) GetManga(ctx context.Context, req *pb.GetMangaRequest) (*pb.MangaResponse, error) {
@@ -103,6 +117,19 @@ func (s *Server) UpdateProgress(ctx context.Context, req *pb.ProgressRequest) (*
 	_, err := s.DB.ExecContext(ctx, query, req.UserId, req.MangaId, req.Chapter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to update progress: %v", err)
+	}
+
+	if s.bridge != nil {
+		event := bridge.NewUnifiedEvent(
+			bridge.EventProgressUpdate,
+			req.UserId,
+			bridge.ProtocolGRPC,
+			map[string]interface{}{
+				"manga_id": req.MangaId,
+				"chapter":  req.Chapter,
+			},
+		)
+		s.bridge.BroadcastEvent(event)
 	}
 
 	return &pb.ProgressResponse{

@@ -18,17 +18,25 @@ type Server struct {
 	subscriberManager *SubscriberManager
 	broadcaster       *Broadcaster
 	log               *logger.Logger
-	bridge            *bridge.Bridge
+	bridge            *bridge.UnifiedBridge
 }
 
-func NewServer(port string, br *bridge.Bridge) *Server {
+func NewServer(port string) *Server {
 	log := logger.WithContext("component", "udp_server")
 	return &Server{
 		Port:              port,
 		subscriberManager: NewSubscriberManager(log),
 		log:               log,
-		bridge:            br,
+		bridge:            nil,
 	}
+}
+
+func (s *Server) SetBridge(b *bridge.UnifiedBridge) {
+	s.bridge = b
+	if s.broadcaster != nil {
+		s.broadcaster.SetBridge(b)
+	}
+	s.log.Info("udp_server_bridge_set")
 }
 
 func (s *Server) Start() error {
@@ -43,12 +51,13 @@ func (s *Server) Start() error {
 	}
 
 	s.broadcaster = NewBroadcaster(s.conn, s.subscriberManager, s.log)
-	s.running.Store(true)
-	s.subscriberManager.StartCleanup()
-
 	if s.bridge != nil {
+		s.broadcaster.SetBridge(s.bridge)
 		s.bridge.SetUDPBroadcaster(s.broadcaster)
 	}
+
+	s.running.Store(true)
+	s.subscriberManager.StartCleanup()
 
 	s.log.Info("udp_server_started", "port", s.Port)
 	go s.handlePackets()

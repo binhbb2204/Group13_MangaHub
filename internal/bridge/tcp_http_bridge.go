@@ -15,7 +15,7 @@ type TCPClient struct {
 	UserID string
 }
 
-type UDPBroadcaster interface {
+type OldUDPBroadcaster interface {
 	BroadcastToUser(userID string, event BroadcastEvent)
 }
 
@@ -28,7 +28,7 @@ type BroadcastEvent struct {
 type Bridge struct {
 	logger         *logger.Logger
 	clients        map[string][]*TCPClient
-	udpBroadcaster UDPBroadcaster
+	udpBroadcaster OldUDPBroadcaster
 	sessionManager SessionManager
 	clientsLock    sync.RWMutex
 	eventChan      chan Event
@@ -67,7 +67,7 @@ func (b *Bridge) Stop() {
 	close(b.stopChan)
 }
 
-func (b *Bridge) SetUDPBroadcaster(broadcaster UDPBroadcaster) {
+func (b *Bridge) SetUDPBroadcaster(broadcaster OldUDPBroadcaster) {
 	b.clientsLock.Lock()
 	defer b.clientsLock.Unlock()
 	b.udpBroadcaster = broadcaster

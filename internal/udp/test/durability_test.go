@@ -14,7 +14,7 @@ import (
 func TestServerRestart(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19300", nil)
+	server := udp.NewServer("19300")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestServerRestart(t *testing.T) {
 func TestGracefulShutdown(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19301", nil)
+	server := udp.NewServer("19301")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestGracefulShutdown(t *testing.T) {
 func TestMalformedPacketRecovery(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19302", nil)
+	server := udp.NewServer("19302")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestMalformedPacketRecovery(t *testing.T) {
 func TestMultipleRestartCycles(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19303", nil)
+	server := udp.NewServer("19303")
 
 	numCycles := 5
 	for i := 0; i < numCycles; i++ {
@@ -183,13 +183,13 @@ func TestMultipleRestartCycles(t *testing.T) {
 func TestRecoveryFromPortConflict(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server1 := udp.NewServer("19304", nil)
+	server1 := udp.NewServer("19304")
 	if err := server1.Start(); err != nil {
 		t.Fatalf("Failed to start first server: %v", err)
 	}
 	defer server1.Stop()
 
-	server2 := udp.NewServer("19304", nil)
+	server2 := udp.NewServer("19304")
 	err := server2.Start()
 	if err == nil {
 		server2.Stop()
@@ -204,7 +204,7 @@ func TestLongRunningStability(t *testing.T) {
 
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19305", nil)
+	server := udp.NewServer("19305")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}

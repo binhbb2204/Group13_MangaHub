@@ -34,7 +34,7 @@ func main() {
 	udpBridge.Start()
 	defer udpBridge.Stop()
 
-	server := udp.NewServer(port, udpBridge)
+	server := udp.NewServer(port)
 	if err := server.Start(); err != nil {
 		log.Error("failed_to_start_udp_server",
 			"error", err.Error(),

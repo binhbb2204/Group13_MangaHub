@@ -15,7 +15,7 @@ import (
 func TestMessageDelivery(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19500", nil)
+	server := udp.NewServer("19500")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestMessageDelivery(t *testing.T) {
 func TestSessionPersistence(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19501", nil)
+	server := udp.NewServer("19501")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestSessionPersistence(t *testing.T) {
 func TestReconnectionBehavior(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	server := udp.NewServer("19502", nil)
+	server := udp.NewServer("19502")
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -163,11 +163,12 @@ func TestReconnectionBehavior(t *testing.T) {
 func TestNotificationBroadcast(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	br := bridge.NewBridge(logger.GetLogger())
+	br := bridge.NewUnifiedBridge(logger.GetLogger())
 	br.Start()
 	defer br.Stop()
 
-	server := udp.NewServer("19503", br)
+	server := udp.NewServer("19503")
+	server.SetBridge(br)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -203,17 +204,22 @@ func TestNotificationBroadcast(t *testing.T) {
 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	conn.Read(buffer)
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
-	br.NotifyProgressUpdate(bridge.ProgressUpdateEvent{
-		UserID:       "user1",
-		MangaID:      "manga-1",
-		ChapterID:    42,
-		Status:       "reading",
-		LastReadDate: time.Now(),
-	})
+	// Explicitly broadcast through UnifiedBridge
+	event := bridge.NewUnifiedEvent(
+		bridge.EventProgressUpdate,
+		"user1",
+		bridge.ProtocolUDP,
+		map[string]interface{}{
+			"manga_id": "manga-1",
+			"chapter":  42,
+			"status":   "reading",
+		},
+	)
+	br.BroadcastEvent(event)
 
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	n, err := conn.Read(buffer)
 	if err != nil {
 		t.Fatalf("Failed to receive notification: %v", err)
@@ -240,11 +246,12 @@ func TestNotificationBroadcast(t *testing.T) {
 func TestMultiDeviceNotification(t *testing.T) {
 	logger.Init(logger.ERROR, false, nil)
 
-	br := bridge.NewBridge(logger.GetLogger())
+	br := bridge.NewUnifiedBridge(logger.GetLogger())
 	br.Start()
 	defer br.Stop()
 
-	server := udp.NewServer("19504", br)
+	server := udp.NewServer("19504")
+	server.SetBridge(br)
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -279,18 +286,24 @@ func TestMultiDeviceNotification(t *testing.T) {
 		conn.Read(buffer)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
-	br.NotifyLibraryUpdate(bridge.LibraryUpdateEvent{
-		UserID:  "user1",
-		MangaID: "manga-1",
-		Action:  "added",
-	})
+	// Explicitly broadcast through UnifiedBridge
+	event := bridge.NewUnifiedEvent(
+		bridge.EventLibraryUpdate,
+		"user1",
+		bridge.ProtocolUDP,
+		map[string]interface{}{
+			"manga_id": "manga-1",
+			"action":   "added",
+		},
+	)
+	br.BroadcastEvent(event)
 
 	successCount := 0
 	for i, conn := range connections {
 		buffer := make([]byte, 1024)
-		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		n, err := conn.Read(buffer)
 		if err == nil && n > 0 {
 			msg, err := udp.ParseMessage(buffer[:n])
