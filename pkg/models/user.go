@@ -40,9 +40,9 @@ type UpdateUsernameRequest struct {
 }
 
 type UpdateProfileResponse struct {
-	Message string    `json:"message"`
-	UserID  string    `json:"user_id"`
-	Email   string    `json:"email,omitempty"`
-	Username string    `json:"username,omitempty"`
+	Message   string    `json:"message"`
+	UserID    string    `json:"user_id"`
+	Email     string    `json:"email,omitempty"`
+	Username  string    `json:"username,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
