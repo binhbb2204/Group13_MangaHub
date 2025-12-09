@@ -99,6 +99,8 @@ func main() {
 	})
 	{
 		protectedAuth.POST("/change-password", authHandler.ChangePassword)
+		protectedAuth.POST("/update-email", authHandler.UpdateEmail)
+		protectedAuth.POST("/update-username", authHandler.UpdateUsername)
 	}
 
 	mangaGroup := router.Group("/manga")

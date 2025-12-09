@@ -259,6 +259,231 @@ var authLogoutCmd = &cobra.Command{
 	},
 }
 
+var authChangePasswordCmd = &cobra.Command{
+	Use:   "change-password",
+	Short: "Change your account password",
+	Long:  `Change your MangaHub account password with verification of current password.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			printError("Configuration not initialized")
+			fmt.Println("Run: mangahub init")
+			return err
+		}
+
+		if cfg.User.Token == "" {
+			printError("You are not logged in")
+			return fmt.Errorf("please login first: mangahub auth login")
+		}
+
+		serverURL, err := config.GetServerURL()
+		if err != nil {
+			return err
+		}
+
+		fmt.Print("Current password: ")
+		currentPwdBytes, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("failed to read password: %w", err)
+		}
+
+		fmt.Print("New password: ")
+		newPwdBytes, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("failed to read password: %w", err)
+		}
+
+		fmt.Print("Confirm new password: ")
+		confirmBytes, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("failed to read password confirmation: %w", err)
+		}
+
+		if string(newPwdBytes) != string(confirmBytes) {
+			printError("Passwords do not match")
+			return fmt.Errorf("new passwords do not match")
+		}
+
+		reqBody := map[string]string{
+			"current_password": string(currentPwdBytes),
+			"new_password":     string(newPwdBytes),
+		}
+		jsonData, _ := json.Marshal(reqBody)
+
+		req, _ := http.NewRequest("POST", serverURL+"/auth/change-password", bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.User.Token)
+
+		client := &http.Client{}
+		res, err := client.Do(req)
+		if err != nil {
+			printError("Failed to change password: Server connection error")
+			return err
+		}
+		defer res.Body.Close()
+
+		body, _ := io.ReadAll(res.Body)
+
+		if res.StatusCode != http.StatusOK {
+			var errRes map[string]interface{}
+			json.Unmarshal(body, &errRes)
+			printError(fmt.Sprintf("Failed to change password: %v", errRes["error"]))
+			if details, ok := errRes["details"].(string); ok {
+				fmt.Printf("Details: %s\n", details)
+			}
+			return fmt.Errorf("password change failed")
+		}
+
+		printSuccess("Password changed successfully!")
+		return nil
+	},
+}
+
+var authUpdateEmailCmd = &cobra.Command{
+	Use:   "update-email",
+	Short: "Update your email address",
+	Long:  `Update your MangaHub account email address (JWT token required).`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			printError("Configuration not initialized")
+			fmt.Println("Run: mangahub init")
+			return err
+		}
+
+		if cfg.User.Token == "" {
+			printError("You are not logged in")
+			return fmt.Errorf("please login first: mangahub auth login")
+		}
+
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("New email: ")
+		newEmail, _ := reader.ReadString('\n')
+		newEmail = strings.TrimSpace(newEmail)
+
+		if newEmail == "" {
+			printError("Email cannot be empty")
+			return fmt.Errorf("email is required")
+		}
+
+		serverURL, err := config.GetServerURL()
+		if err != nil {
+			return err
+		}
+
+		reqBody := map[string]string{
+			"new_email": newEmail,
+		}
+		jsonData, _ := json.Marshal(reqBody)
+
+		req, _ := http.NewRequest("POST", serverURL+"/auth/update-email", bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.User.Token)
+
+		client := &http.Client{}
+		res, err := client.Do(req)
+		if err != nil {
+			printError("Failed to update email: Server connection error")
+			return err
+		}
+		defer res.Body.Close()
+
+		body, _ := io.ReadAll(res.Body)
+
+		if res.StatusCode != http.StatusOK {
+			var errRes map[string]interface{}
+			json.Unmarshal(body, &errRes)
+			printError(fmt.Sprintf("Failed to update email: %v", errRes["error"]))
+			if details, ok := errRes["details"].(string); ok {
+				fmt.Printf("Details: %s\n", details)
+			}
+			return fmt.Errorf("email update failed")
+		}
+
+		printSuccess("Email updated successfully!")
+		fmt.Printf("New email: %s\n", newEmail)
+		return nil
+	},
+}
+
+var authUpdateUsernameCmd = &cobra.Command{
+	Use:   "update-username",
+	Short: "Update your username",
+	Long:  `Update your MangaHub account username (JWT token required).`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			printError("Configuration not initialized")
+			fmt.Println("Run: mangahub init")
+			return err
+		}
+
+		if cfg.User.Token == "" {
+			printError("You are not logged in")
+			return fmt.Errorf("please login first: mangahub auth login")
+		}
+
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("New username: ")
+		newUsername, _ := reader.ReadString('\n')
+		newUsername = strings.TrimSpace(newUsername)
+
+		if newUsername == "" {
+			printError("Username cannot be empty")
+			return fmt.Errorf("username is required")
+		}
+
+		if len(newUsername) < 3 {
+			printError("Username must be at least 3 characters")
+			return fmt.Errorf("username too short")
+		}
+
+		serverURL, err := config.GetServerURL()
+		if err != nil {
+			return err
+		}
+
+		reqBody := map[string]string{
+			"new_username": newUsername,
+		}
+		jsonData, _ := json.Marshal(reqBody)
+
+		req, _ := http.NewRequest("POST", serverURL+"/auth/update-username", bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.User.Token)
+
+		client := &http.Client{}
+		res, err := client.Do(req)
+		if err != nil {
+			printError("Failed to update username: Server connection error")
+			return err
+		}
+		defer res.Body.Close()
+
+		body, _ := io.ReadAll(res.Body)
+
+		if res.StatusCode != http.StatusOK {
+			var errRes map[string]interface{}
+			json.Unmarshal(body, &errRes)
+			printError(fmt.Sprintf("Failed to update username: %v", errRes["error"]))
+			if details, ok := errRes["details"].(string); ok {
+				fmt.Printf("Details: %s\n", details)
+			}
+			return fmt.Errorf("username update failed")
+		}
+
+		printSuccess("Username updated successfully!")
+		fmt.Printf("New username: %s\n", newUsername)
+		if err := config.UpdateUserToken(newUsername, cfg.User.Token); err != nil {
+			fmt.Println("Warning: Could not update local config with new username")
+		}
+		return nil
+	},
+}
+
 func init() {
 	authRegisterCmd.Flags().StringVar(&username, "username", "", "Username for registration")
 	authRegisterCmd.Flags().StringVar(&email, "email", "", "Email for registration")
@@ -271,6 +496,9 @@ func init() {
 	authCmd.AddCommand(authRegisterCmd)
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
+	authCmd.AddCommand(authChangePasswordCmd)
+	authCmd.AddCommand(authUpdateEmailCmd)
+	authCmd.AddCommand(authUpdateUsernameCmd)
 }
 
 func readPasswordFallback() (string, error) {

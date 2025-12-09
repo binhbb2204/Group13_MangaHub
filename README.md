@@ -77,6 +77,39 @@ Once you're registered, log in:
 mangahub auth login --username yourname
 ```
 
+Or use email instead:
+```bash
+mangahub auth login --email your@email.com
+```
+
+### Manage Your Account
+
+**Change your password:**
+```bash
+mangahub auth change-password
+
+# It'll ask for your current password and new password
+Current password: ********
+New password: ********
+Confirm new password: ********
+```
+
+**Update your email:**
+```bash
+mangahub auth update-email
+
+# Interactive prompt for new email (token required)
+New email: newemail@example.com
+```
+
+**Update your username:**
+```bash
+mangahub auth update-username
+
+# Interactive prompt for new username (token required)
+New username: newusername
+```
+
 When you're done, just:
 ```bash
 mangahub auth logout
@@ -149,6 +182,9 @@ Good news! The API is ready to go. Just remember the port you set in `.env` (def
 - **Add to library:** `POST http://localhost:8080/users/library`
 - **See your library:** `GET http://localhost:8080/users/library`
 - **Update progress:** `PUT http://localhost:8080/users/progress`
+- **Change password:** `POST http://localhost:8080/auth/change-password`
+- **Update email:** `POST http://localhost:8080/auth/update-email`
+- **Update username:** `POST http://localhost:8080/auth/update-username`
 
 **Quick tip:** After login, you'll get a JWT token. Add it to your request headers as `Authorization: Bearer <your-token>` for protected endpoints.
 
@@ -206,7 +242,75 @@ Content-Type: application/json
   "password": "yourpassword"
 }
 ```
+Or use email:
+```
+POST http://localhost:8080/auth/login
+Content-Type: application/json
+
+{
+  "email": "your@email.com",
+  "password": "yourpassword"
+}
+```
 Save the `token` from the response - you'll need it for protected endpoints!
+
+**Change password (needs token):**
+```
+POST http://localhost:8080/auth/change-password
+Authorization: Bearer your-token-here
+Content-Type: application/json
+
+{
+  "current_password": "youroldpassword",
+  "new_password": "yournewpassword"
+}
+```
+Response:
+```json
+{
+  "message": "Password changed successfully"
+}
+```
+
+**Update email (needs token):**
+```
+POST http://localhost:8080/auth/update-email
+Authorization: Bearer your-token-here
+Content-Type: application/json
+
+{
+  "new_email": "newemail@example.com"
+}
+```
+Response:
+```json
+{
+  "message": "Email updated successfully",
+  "user_id": "user123",
+  "email": "newemail@example.com",
+  "updated_at": "2025-12-09T10:30:00Z"
+}
+```
+
+**Update username (needs token):**
+```
+POST http://localhost:8080/auth/update-username
+Authorization: Bearer your-token-here
+Content-Type: application/json
+
+{
+  "new_username": "newusername"
+}
+```
+Response:
+```json
+{
+  "message": "Username updated successfully",
+  "user_id": "user123",
+  "username": "newusername",
+  "updated_at": "2025-12-09T10:30:00Z"
+}
+```
 
 **Add to library (needs token):**
 ```
