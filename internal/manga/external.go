@@ -262,6 +262,7 @@ func convertMangaDexToManga(data interface{}) models.Manga {
 		Status:      status,
 		Description: description,
 		CoverURL:    coverURL,
+		MediaType:   strings.ToLower(d.Type),
 	}
 }
 
@@ -413,6 +414,7 @@ type malSearchRes struct {
 				Medium string `json:"medium"`
 				Large  string `json:"large"`
 			} `json:"main_picture"`
+			MediaType         string `json:"media_type"`
 			AlternativeTitles *struct {
 				Synonyms []string `json:"synonyms"`
 				En       string   `json:"en"`
@@ -503,7 +505,7 @@ func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]
 	if offset > 0 {
 		qs.Set("offset", fmt.Sprintf("%d", offset))
 	}
-	qs.Set("fields", "id,title,main_picture,alternative_titles,synopsis,num_chapters,status,genres,authors{first_name,last_name}")
+	qs.Set("fields", "id,title,main_picture,media_type,alternative_titles,synopsis,num_chapters,status,genres,authors{first_name,last_name}")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -527,7 +529,7 @@ func (m *MALSource) Search(ctx context.Context, q string, limit, offset int) ([]
 	out := make([]models.Manga, 0, len(r.Data))
 	for _, d := range r.Data {
 		manga := convertMALToManga(d.Node.ID, d.Node.Title, d.Node.MainPicture, d.Node.AlternativeTitles,
-			d.Node.Synopsis, d.Node.NumChapters, d.Node.Status, d.Node.Genres, d.Node.Authors)
+			d.Node.Synopsis, d.Node.NumChapters, d.Node.Status, d.Node.Genres, d.Node.Authors, d.Node.MediaType)
 		out = append(out, manga)
 	}
 	return out, nil
@@ -653,7 +655,7 @@ func convertMALDetailToManga(r malMangaDetailRes) models.Manga {
 }
 
 func convertMALToManga(id int, title string, mainPicture interface{}, altTitles interface{},
-	synopsis string, numChapters int, status string, genres interface{}, authors interface{}) models.Manga {
+	synopsis string, numChapters int, status string, genres interface{}, authors interface{}, mediaType string) models.Manga {
 
 	coverURL := ""
 	if pic, ok := mainPicture.(*struct {
@@ -715,6 +717,7 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 		TotalChapters: numChapters,
 		Description:   synopsis,
 		CoverURL:      coverURL,
+		MediaType:     strings.ToLower(mediaType),
 	}
 
 	// Fetch MangaDex ID

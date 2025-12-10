@@ -110,7 +110,6 @@ func main() {
 		mangaGroup.GET("/search", mangaHandler.SearchExternal)
 		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo)
 		mangaGroup.GET("/featured", mangaHandler.GetFeaturedManga)
-		mangaGroup.GET("/ranking", mangaHandler.GetRanking)
 		// MangaDex chapter routes (must be before /:id to avoid conflicts)
 		mangaGroup.GET("/chapters/:mangadexId", mangaHandler.GetChapters)
 		mangaGroup.GET("/chapter/:chapterId/pages", mangaHandler.GetChapterPages)

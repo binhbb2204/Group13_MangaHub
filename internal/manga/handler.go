@@ -70,6 +70,7 @@ type Author struct {
 	} `json:"node"`
 }
 
+// RankingManga represents MAL ranking API response format
 type RankingManga struct {
 	ID          int    `json:"id"`
 	Title       string `json:"title"`
@@ -80,8 +81,52 @@ type RankingManga struct {
 	Status      string   `json:"status"`
 	NumChapters int      `json:"num_chapters"`
 	Authors     []Author `json:"authors"`
-	Synopsis    string   `json:"description,omitempty"`
+	Synopsis    string   `json:"synopsis,omitempty"`
 	CoverURL    string   `json:"cover_url,omitempty"`
+	Genres      []string `json:"genres,omitempty"`
+}
+
+// UnmarshalJSON custom unmarshaler to convert MAL genres format to string array
+func (r *RankingManga) UnmarshalJSON(data []byte) error {
+	// Temporary struct matching MAL API format exactly
+	aux := &struct {
+		ID          int    `json:"id"`
+		Title       string `json:"title"`
+		MainPicture *struct {
+			Medium string `json:"medium"`
+			Large  string `json:"large"`
+		} `json:"main_picture,omitempty"`
+		Status      string   `json:"status"`
+		NumChapters int      `json:"num_chapters"`
+		Authors     []Author `json:"authors"`
+		Synopsis    string   `json:"synopsis,omitempty"`
+		GenresRaw   []struct {
+			Name string `json:"name"`
+		} `json:"genres"`
+	}{}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// Copy fields
+	r.ID = aux.ID
+	r.Title = aux.Title
+	r.MainPicture = aux.MainPicture
+	r.Status = aux.Status
+	r.NumChapters = aux.NumChapters
+	r.Authors = aux.Authors
+	r.Synopsis = aux.Synopsis
+
+	// Convert genres to string array
+	if len(aux.GenresRaw) > 0 {
+		r.Genres = make([]string, len(aux.GenresRaw))
+		for i, g := range aux.GenresRaw {
+			r.Genres[i] = g.Name
+		}
+	}
+
+	return nil
 }
 
 type RankingList struct {
@@ -230,13 +275,168 @@ func (h *Handler) SearchExternal(c *gin.Context) {
 		return
 	}
 
-	query := c.Query("q")
+	query := strings.TrimSpace(c.Query("q"))
+	typeParam := strings.TrimSpace(strings.ToLower(c.Query("type")))
+	genreParam := strings.TrimSpace(c.Query("genre"))
+
+	// Parse comma-separated genres
+	var genreFilters []string
+	if genreParam != "" {
+		parts := strings.Split(genreParam, ",")
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				genreFilters = append(genreFilters, trimmed)
+			}
+		}
+	}
+
+	// Canonicalize media type strings for both ranking fallback and media-type filtering
+	mapToCanonicalMediaType := func(mt string) string {
+		mt = strings.TrimSpace(strings.ToLower(mt))
+		mt = strings.ReplaceAll(mt, "-", "_")
+		switch mt {
+		case "manga":
+			return "manga"
+		case "novel", "novels", "lightnovel", "light_novel", "lightnovels":
+			return "novel"
+		case "one_shot", "oneshot", "oneshots":
+			return "one_shot"
+		case "doujin", "doujinshi":
+			return "doujinshi"
+		case "manhwa":
+			return "manhwa"
+		case "manhua":
+			return "manhua"
+		default:
+			return ""
+		}
+	}
+
+	// If no query provided but type is provided, fall back to ranking-by-type search
 	if query == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'q' is required"})
+		clientID := os.Getenv("MAL_CLIENT_ID")
+		if clientID == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MAL API not configured"})
+			return
+		}
+
+		// If no type and no query and no genre, return error
+		if typeParam == "" && genreParam == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "At least one of 'q', 'type', or 'genre' is required"})
+			return
+		}
+
+		// Pagination params already parsed below
+		page := parseIntQuery(c, "page", 1)
+		requestLimit := parseIntQuery(c, "limit", 0)
+		pageSize := 20
+
+		normalizeRankingType := func(mt string) string {
+			mt = strings.TrimSpace(strings.ToLower(mt))
+			mt = strings.ReplaceAll(mt, "-", "_")
+			switch mt {
+			case "", "all":
+				return "all"
+			case "manga":
+				return "manga"
+			case "oneshot", "one_shot", "oneshots":
+				return "oneshots"
+			case "doujin", "doujinshi":
+				return "doujin"
+			case "manhwa":
+				return "manhwa"
+			case "manhua":
+				return "manhua"
+			case "lightnovel", "light_novel", "lightnovels", "novel", "novels":
+				return "lightnovels"
+			case "bypopularity", "popularity", "popular":
+				return "bypopularity"
+			case "favorite", "favorites", "favourite", "favourites":
+				return "favorite"
+			default:
+				return "all"
+			}
+		}
+
+		rankingType := normalizeRankingType(typeParam)
+
+		maxResults := requestLimit
+		if maxResults <= 0 {
+			maxResults = 50
+		}
+		if maxResults > 500 {
+			maxResults = 500
+		}
+
+		mangas, err := h.fetchRanking(clientID, rankingType, maxResults)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Convert RankingManga to regular Manga first
+		allRegularMangas := make([]models.Manga, len(mangas))
+		for i, rm := range mangas {
+			allRegularMangas[i] = models.Manga{
+				ID:            fmt.Sprintf("%d", rm.ID),
+				Title:         rm.Title,
+				Status:        rm.Status,
+				TotalChapters: rm.NumChapters,
+				Description:   rm.Synopsis,
+				Genres:        rm.Genres,
+				CoverURL:      rm.CoverURL,
+				MediaType:     mapToCanonicalMediaType(typeParam),
+			}
+			if len(rm.Authors) > 0 {
+				author := strings.TrimSpace(rm.Authors[0].Node.FirstName + " " + rm.Authors[0].Node.LastName)
+				if author != "" {
+					allRegularMangas[i].Author = author
+				}
+			}
+		}
+
+		// Apply genre filter to ranking results if provided (before pagination)
+		if len(genreFilters) > 0 {
+			filtered := make([]models.Manga, 0, len(allRegularMangas))
+			for _, m := range allRegularMangas {
+				for _, g := range m.Genres {
+					for _, gf := range genreFilters {
+						if strings.EqualFold(strings.TrimSpace(g), gf) {
+							filtered = append(filtered, m)
+							goto nextManga
+						}
+					}
+				}
+			nextManga:
+			}
+			allRegularMangas = filtered
+		}
+
+		// Now paginate after filtering
+		offset := (page - 1) * pageSize
+		var regularMangas []models.Manga
+		if offset < len(allRegularMangas) {
+			end := offset + pageSize
+			if end > len(allRegularMangas) {
+				end = len(allRegularMangas)
+			}
+			regularMangas = allRegularMangas[offset:end]
+		}
+
+		total := len(allRegularMangas)
+		pagination := calculatePagination(page, pageSize, total)
+		response := models.PaginatedBooksResponse{
+			Mangas:     regularMangas,
+			Pagination: pagination,
+		}
+
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
-	if len(strings.TrimSpace(query)) < 3 {
+	// Query provided: enforce minimum length
+	if len(query) < 3 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Search query must be at least 3 characters"})
 		return
 	}
@@ -292,6 +492,36 @@ func (h *Handler) SearchExternal(c *gin.Context) {
 		if fetchPage > 50 {
 			break
 		}
+	}
+
+	// Optional client-side media type filter (e.g., type=novels, type=manga)
+	normalizedType := mapToCanonicalMediaType(typeParam)
+	if normalizedType != "" {
+		filtered := make([]models.Manga, 0, len(allMangas))
+		for _, m := range allMangas {
+			mt := mapToCanonicalMediaType(m.MediaType)
+			if mt == normalizedType {
+				filtered = append(filtered, m)
+			}
+		}
+		allMangas = filtered
+	}
+
+	// Optional client-side genre filter (case-insensitive substring match)
+	if len(genreFilters) > 0 {
+		filtered := make([]models.Manga, 0, len(allMangas))
+		for _, m := range allMangas {
+			for _, g := range m.Genres {
+				for _, gf := range genreFilters {
+					if strings.EqualFold(strings.TrimSpace(g), gf) {
+						filtered = append(filtered, m)
+						goto nextQueryManga
+					}
+				}
+			}
+		nextQueryManga:
+		}
+		allMangas = filtered
 	}
 
 	// Now get the requested page from all results
@@ -482,7 +712,7 @@ func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]Ranki
 	params := url.Values{}
 	params.Add("ranking_type", rankingType)
 	params.Add("limit", fmt.Sprintf("%d", limit))
-	params.Add("fields", "id,title,main_picture,authors{name,first_name,last_name},status,num_chapters,synopsis")
+	params.Add("fields", "id,title,main_picture,authors{name,first_name,last_name},status,num_chapters,synopsis,genres")
 
 	req, err := http.NewRequest("GET", apiURL+"?"+params.Encode(), nil)
 	if err != nil {
@@ -508,6 +738,7 @@ func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]Ranki
 	var mangas []RankingManga
 	for _, item := range result.Data {
 		manga := item.Node
+
 		// Populate cover_url from main_picture
 		if manga.MainPicture != nil {
 			if manga.MainPicture.Large != "" {
@@ -516,6 +747,7 @@ func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]Ranki
 				manga.CoverURL = manga.MainPicture.Medium
 			}
 		}
+
 		mangas = append(mangas, manga)
 	}
 	return mangas, nil
@@ -586,76 +818,8 @@ func (h *Handler) GetFeaturedManga(c *gin.Context) {
 }
 
 func (h *Handler) GetRanking(c *gin.Context) {
-	clientID := os.Getenv("MAL_CLIENT_ID")
-	if clientID == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MAL API not configured"})
-		return
-	}
-
-	rankingType := c.DefaultQuery("type", "all")
-
-	// Parse pagination parameters
-	page := parseIntQuery(c, "page", 1)          // Default to page 1
-	requestLimit := parseIntQuery(c, "limit", 0) // 0 means no limit (fetch all)
-	pageSize := 20                               // Fixed page size
-
-	// Determine max results to fetch
-	maxResults := 500 // Default: fetch all available (MAL max)
-	if requestLimit > 0 {
-		maxResults = requestLimit // User specified limit
-		if maxResults > 500 {
-			maxResults = 500 // Cap at MAL maximum
-		}
-	}
-
-	// Fetch all results for the ranking type
-	allMangas, err := h.fetchRanking(clientID, rankingType, maxResults)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Get the requested page
-	offset := (page - 1) * pageSize
-	var mangas []RankingManga
-	if offset < len(allMangas) {
-		end := offset + pageSize
-		if end > len(allMangas) {
-			end = len(allMangas)
-		}
-		mangas = allMangas[offset:end]
-	}
-
-	total := len(allMangas)
-
-	// Convert RankingManga to regular Manga for pagination response
-	regularMangas := make([]models.Manga, len(mangas))
-	for i, rm := range mangas {
-		regularMangas[i] = models.Manga{
-			ID:            fmt.Sprintf("%d", rm.ID),
-			Title:         rm.Title,
-			Status:        rm.Status,
-			TotalChapters: rm.NumChapters,
-			Description:   rm.Synopsis,
-
-			CoverURL: rm.CoverURL,
-		}
-		if len(rm.Authors) > 0 {
-			author := strings.TrimSpace(rm.Authors[0].Node.FirstName + " " + rm.Authors[0].Node.LastName)
-			if author != "" {
-				regularMangas[i].Author = author
-			}
-		}
-	}
-
-	pagination := calculatePagination(page, pageSize, total)
-
-	response := models.PaginatedBooksResponse{
-		Mangas:     regularMangas,
-		Pagination: pagination,
-	}
-
-	c.JSON(http.StatusOK, response)
+	// Deprecated: routing is now handled by /manga/search with type-only queries
+	c.JSON(http.StatusGone, gin.H{"error": "Deprecated. Use /manga/search?type=<ranking_type> instead."})
 }
 
 // GetChapters fetches chapters for a manga from MangaDex

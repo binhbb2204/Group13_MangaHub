@@ -764,8 +764,8 @@ var mangaFeaturedCmd = &cobra.Command{
 
 var mangaRankingCmd = &cobra.Command{
 	Use:   "ranking [type]",
-	Short: "Show manga ranking by type",
-	Long:  `Display manga ranking from MyAnimeList. Available types: all, bypopularity, favorite.`,
+	Short: "Show manga ranking by type (uses search API)",
+	Long:  `Display manga ranking from MyAnimeList via /manga/search?type=<type>. Available types: all, bypopularity, favorite, lightnovels, oneshots, doujin, manhwa, manhua.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rankingType := "all"
@@ -784,7 +784,7 @@ var mangaRankingCmd = &cobra.Command{
 		if limit <= 0 || limit > 20 {
 			limit = 20
 		}
-		rankingURL := fmt.Sprintf("%s/manga/ranking?type=%s&limit=%d", serverURL, rankingType, limit)
+		rankingURL := fmt.Sprintf("%s/manga/search?type=%s&limit=%d", serverURL, rankingType, limit)
 		if rankingPage > 0 {
 			rankingURL += fmt.Sprintf("&page=%d", rankingPage)
 		}
