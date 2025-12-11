@@ -280,7 +280,10 @@ type Chapter struct {
 // GetChapters fetches chapters for a manga from MangaDex
 func (m *MangaDexSource) GetChapters(ctx context.Context, mangaDexID string, language string, limit int) ([]Chapter, error) {
 	if limit <= 0 {
-		limit = 100
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
 	}
 	if language == "" {
 		language = "en"
@@ -291,8 +294,11 @@ func (m *MangaDexSource) GetChapters(ctx context.Context, mangaDexID string, lan
 	qs.Add("translatedLanguage[]", language)
 	qs.Set("limit", fmt.Sprintf("%d", limit))
 	qs.Set("order[chapter]", "asc")
+	// Allow all ratings so mature titles (e.g., Berserk marked as erotica) are not filtered out
 	qs.Add("contentRating[]", "safe")
 	qs.Add("contentRating[]", "suggestive")
+	qs.Add("contentRating[]", "erotica")
+	qs.Add("contentRating[]", "pornographic")
 	u.RawQuery = qs.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -731,16 +737,30 @@ func fetchMangaDexID(title string) string {
 		return ""
 	}
 
+	// Normalize once for exact matching
+	target := strings.TrimSpace(strings.ToLower(title))
+	if target == "" {
+		return ""
+	}
+
 	mangadex := NewMangaDexSource()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	results, err := mangadex.Search(ctx, title, 1, 0)
+	// Fetch a handful of results to allow exact-match selection
+	results, err := mangadex.Search(ctx, title, 8, 0)
 	if err != nil || len(results) == 0 {
 		return ""
 	}
 
-	return results[0].MangaDexID
+	for _, r := range results {
+		if strings.EqualFold(strings.TrimSpace(r.Title), target) {
+			return r.MangaDexID
+		}
+	}
+
+	// No safe exact match found; avoid returning a wrong ID
+	return ""
 }
 
 func NewExternalSourceFromEnv() (ExternalSource, error) {

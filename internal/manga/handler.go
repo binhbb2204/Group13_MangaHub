@@ -562,19 +562,31 @@ func (h *Handler) GetMangaInfo(c *gin.Context) {
 		return
 	}
 
-	isNumeric := true
-	for _, ch := range mangaID {
-		if ch < '0' || ch > '9' {
-			isNumeric = false
-			break
-		}
-	}
-	if !isNumeric {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Manga ID must be numeric"})
-		return
+	// Decide source: UUID-style goes to MangaDex, numeric goes to MAL
+	isUUID := func(id string) bool {
+		return len(id) == 36 && strings.Count(id, "-") == 4
 	}
 
 	ctx := context.Background()
+
+	if isUUID(mangaID) {
+		mangadex := NewMangaDexSource()
+		manga, err := mangadex.GetMangaByID(ctx, mangaID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, manga)
+		return
+	}
+
+	// Fallback to MAL (numeric IDs)
+	for _, ch := range mangaID {
+		if ch < '0' || ch > '9' {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Manga ID must be numeric or a MangaDex UUID"})
+			return
+		}
+	}
 
 	manga, err := h.externalSource.GetMangaByID(ctx, mangaID)
 	if err != nil {
@@ -832,9 +844,12 @@ func (h *Handler) GetChapters(c *gin.Context) {
 	}
 
 	language := c.DefaultQuery("language", "en")
-	limit := parseIntQuery(c, "limit", 100)
-	if limit > 500 {
-		limit = 500
+	limit := parseIntQuery(c, "limit", 20) // default to smaller page to avoid heavy payloads
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
 	}
 
 	mangadex := NewMangaDexSource()
