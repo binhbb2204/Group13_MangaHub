@@ -253,16 +253,27 @@ func convertMangaDexToManga(data interface{}) models.Manga {
 		}
 	}
 
+	// Collect alternative titles
+	altTitles := make(map[string]interface{})
+	for _, altMap := range d.Attributes.AltTitles {
+		for lang, val := range altMap {
+			if val != "" {
+				altTitles[lang] = val
+			}
+		}
+	}
+
 	return models.Manga{
-		ID:          id,
-		MangaDexID:  mangaDexID,
-		Title:       title,
-		Author:      author,
-		Genres:      genres,
-		Status:      status,
-		Description: description,
-		CoverURL:    coverURL,
-		MediaType:   strings.ToLower(d.Type),
+		ID:                id,
+		MangaDexID:        mangaDexID,
+		Title:             title,
+		Author:            author,
+		Genres:            genres,
+		Status:            status,
+		Description:       description,
+		CoverURL:          coverURL,
+		MediaType:         strings.ToLower(d.Type),
+		AlternativeTitles: altTitles,
 	}
 }
 
@@ -654,8 +665,22 @@ func convertMALDetailToManga(r malMangaDetailRes) models.Manga {
 		Background:        r.Background,
 	}
 
-	// Fetch MangaDex ID
-	manga.MangaDexID = fetchMangaDexID(r.Title)
+	// Fetch MangaDex ID using MAL titles and synonyms
+	candidates := []string{r.Title}
+	if r.AlternativeTitles != nil {
+		if r.AlternativeTitles.En != "" {
+			candidates = append(candidates, r.AlternativeTitles.En)
+		}
+		if r.AlternativeTitles.Ja != "" {
+			candidates = append(candidates, r.AlternativeTitles.Ja)
+		}
+		for _, s := range r.AlternativeTitles.Synonyms {
+			if strings.TrimSpace(s) != "" {
+				candidates = append(candidates, s)
+			}
+		}
+	}
+	manga.MangaDexID = fetchMangaDexIDFromCandidates(candidates)
 
 	return manga
 }
@@ -726,41 +751,146 @@ func convertMALToManga(id int, title string, mainPicture interface{}, altTitles 
 		MediaType:     strings.ToLower(mediaType),
 	}
 
-	// Fetch MangaDex ID
-	manga.MangaDexID = fetchMangaDexID(title)
+	// Fetch MangaDex ID using primary title
+	manga.MangaDexID = fetchMangaDexIDFromCandidates([]string{title})
 
 	return manga
 }
 
-func fetchMangaDexID(title string) string {
-	if title == "" {
-		return ""
+func fetchMangaDexIDFromCandidates(candidates []string) string {
+	// Normalize and dedupe candidates
+	seen := map[string]struct{}{}
+	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	list := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		n := norm(c)
+		if n == "" {
+			continue
+		}
+		if _, ok := seen[n]; !ok {
+			seen[n] = struct{}{}
+			list = append(list, c)
+		}
 	}
-
-	// Normalize once for exact matching
-	target := strings.TrimSpace(strings.ToLower(title))
-	if target == "" {
+	if len(list) == 0 {
 		return ""
 	}
 
 	mangadex := NewMangaDexSource()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 
-	// Fetch a handful of results to allow exact-match selection
-	results, err := mangadex.Search(ctx, title, 8, 0)
-	if err != nil || len(results) == 0 {
-		return ""
-	}
-
-	for _, r := range results {
-		if strings.EqualFold(strings.TrimSpace(r.Title), target) {
-			return r.MangaDexID
+	// For each candidate, search and validate by fetching altTitles from MangaDex detail
+	for _, q := range list {
+		res, err := mangadex.Search(ctx, q, 10, 0)
+		if err != nil || len(res) == 0 {
+			continue
+		}
+		tq := norm(q)
+		for _, r := range res {
+			// Quick exact title match
+			if norm(r.Title) == tq {
+				return r.MangaDexID
+			}
+			// Fetch detail to inspect altTitles for robust matching
+			detail, err := mangadex.GetMangaByID(ctx, r.MangaDexID)
+			if err != nil || detail == nil {
+				continue
+			}
+			// Check primary title
+			if norm(detail.Title) == tq {
+				return r.MangaDexID
+			}
+			// Check alt titles map values
+			if detail.AlternativeTitles != nil {
+				for _, v := range detail.AlternativeTitles {
+					switch vv := v.(type) {
+					case string:
+						if norm(vv) == tq {
+							return r.MangaDexID
+						}
+					case []string:
+						for _, s := range vv {
+							if norm(s) == tq {
+								return r.MangaDexID
+							}
+						}
+					case map[string]interface{}:
+						for _, s := range vv {
+							if sv, ok := s.(string); ok && norm(sv) == tq {
+								return r.MangaDexID
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
-	// No safe exact match found; avoid returning a wrong ID
+	// Final fallback: fuzzy match for close spelling (e.g., "Yeokdaegeup" vs "Yeokdaegeum")
+	for _, q := range list {
+		res, err := mangadex.Search(ctx, q, 10, 0)
+		if err != nil || len(res) == 0 {
+			continue
+		}
+		tq := norm(q)
+		for _, r := range res {
+			rt := norm(r.Title)
+			// Accept if similarity is high (contains check or edit distance)
+			if len(tq) > 5 && len(rt) > 5 {
+				if strings.Contains(rt, tq) || strings.Contains(tq, rt) {
+					return r.MangaDexID
+				}
+				// Simple edit distance check: allow 2-char difference
+				if levenshtein(tq, rt) <= 2 {
+					return r.MangaDexID
+				}
+			}
+		}
+	}
+
 	return ""
+}
+
+// levenshtein calculates the edit distance between two strings
+func levenshtein(a, b string) int {
+	if len(a) == 0 {
+		return len(b)
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+	if a == b {
+		return 0
+	}
+
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+
+	for i := range prev {
+		prev[i] = i
+	}
+
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			if a[i-1] == b[j-1] {
+				curr[j] = prev[j-1]
+			} else {
+				min := prev[j-1] // substitution
+				if prev[j] < min {
+					min = prev[j] // deletion
+				}
+				if curr[j-1] < min {
+					min = curr[j-1] // insertion
+				}
+				curr[j] = min + 1
+			}
+		}
+		prev, curr = curr, prev
+	}
+
+	return prev[len(b)]
 }
 
 func NewExternalSourceFromEnv() (ExternalSource, error) {
