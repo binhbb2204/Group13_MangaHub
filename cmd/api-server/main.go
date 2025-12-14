@@ -126,11 +126,16 @@ func main() {
 
 	// User routes (all protected)
 	userGroup := router.Group("/users")
-	userGroup.Use(auth.AuthMiddleware(jwtSecret))
+	// userGroup.Use(auth.AuthMiddleware(jwtSecret))
+	userGroup.Use(func(c *gin.Context) {
+		c.Set("authHandler", authHandler)
+		auth.AuthMiddleware(jwtSecret)(c)
+	})
 	{
 		userGroup.GET("/me", userHandler.GetProfile)                          // Get current user profile
 		userGroup.POST("/library", userHandler.AddToLibrary)                  // Add manga to library
 		userGroup.GET("/library", userHandler.GetLibrary)                     // Get user's library
+		userGroup.GET("/progress/:manga_id", userHandler.GetProgress)         // Get progress for specific manga
 		userGroup.PUT("/progress", userHandler.UpdateProgress)                // Update reading progress
 		userGroup.DELETE("/library/:manga_id", userHandler.RemoveFromLibrary) // Remove from library
 	}

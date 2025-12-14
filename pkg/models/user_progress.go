@@ -16,15 +16,17 @@ type AddToLibraryRequest struct {
 }
 
 type UpdateProgressRequest struct {
-	MangaID        string `json:"manga_id" binding:"required"`
-	CurrentChapter int    `json:"current_chapter" binding:"required,min=0"`
-	Status         string `json:"status" binding:"omitempty,oneof=reading completed plan_to_read"`
+	MangaID        string   `json:"manga_id" binding:"required"`
+	CurrentChapter *int     `json:"current_chapter" binding:"omitempty,min=0"` // Optional
+	Status         string   `json:"status" binding:"omitempty,oneof=reading completed plan_to_read"`
+	UserRating     *float64 `json:"user_rating" binding:"omitempty,min=0,max=10"` // User's rating 0-10
 }
 
 type MangaProgress struct {
 	Manga          Manga     `json:"manga"`
 	CurrentChapter int       `json:"current_chapter"`
 	Status         string    `json:"status"`
+	UserRating     *float64  `json:"user_rating"` // Pointer so null is explicit
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
