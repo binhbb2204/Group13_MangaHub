@@ -107,7 +107,8 @@ func main() {
 	{
 		mangaGroup.GET("", mangaHandler.SearchManga)
 		mangaGroup.GET("/all", mangaHandler.GetAllManga)
-		mangaGroup.GET("/search", mangaHandler.SearchExternal)
+		mangaGroup.GET("/search", mangaHandler.SearchManga)      // Use DB search
+		mangaGroup.GET("/search-external", mangaHandler.SearchExternal) // MAL API fallback
 		mangaGroup.GET("/info/:id", mangaHandler.GetMangaInfo)
 		mangaGroup.GET("/featured", mangaHandler.GetFeaturedManga)
 		// MangaDex chapter routes (must be before /:id to avoid conflicts)

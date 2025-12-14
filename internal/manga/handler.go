@@ -153,11 +153,58 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		return
 	}
 
-	// Set default limit to 20, max 20
-	limit := req.Limit
-	if limit <= 0 || limit > 20 {
-		limit = 20
+	// Support 'q' parameter as alias for title search
+	if q := c.Query("q"); q != "" && req.Title == "" {
+		req.Title = q
 	}
+
+	// Set default limit to 20, cap at 100 to avoid huge payloads
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	} else if limit > 100 {
+		limit = 100
+	}
+
+	// Parse genres (comma-separated or repeated)
+	var genreFilters []string
+	if req.Genre != "" {
+		parts := strings.Split(req.Genre, ",")
+		for _, p := range parts {
+			if g := strings.TrimSpace(p); g != "" {
+				genreFilters = append(genreFilters, g)
+			}
+		}
+	}
+	for _, g := range req.Genres {
+		if gg := strings.TrimSpace(g); gg != "" {
+			genreFilters = append(genreFilters, gg)
+		}
+	}
+
+	// Canonicalize type (only media types apply as filters)
+	canonicalType := func(t string) string {
+		t = strings.TrimSpace(strings.ToLower(t))
+		switch t {
+		case "", "all":
+			return ""
+		case "manga":
+			return "manga"
+		case "manhwa":
+			return "manhwa"
+		case "manhua":
+			return "manhua"
+		case "novel", "novels", "lightnovel", "light_novel", "lightnovels":
+			return "novel"
+		case "one_shot", "oneshot", "oneshots":
+			return "one_shot"
+		case "doujin", "doujinshi":
+			return "doujinshi"
+		default:
+			return ""
+		}
+	}
+	normalizedType := canonicalType(req.Type)
 
 	// Default page to 1 if not provided
 	page := req.Page
@@ -184,9 +231,14 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		countArgs = append(countArgs, req.Status)
 	}
 
-	if req.Genre != "" {
+	for _, g := range genreFilters {
 		countQuery += ` AND genres LIKE ?`
-		countArgs = append(countArgs, "%"+req.Genre+"%")
+		countArgs = append(countArgs, "%"+g+"%")
+	}
+
+	if normalizedType != "" {
+		countQuery += ` AND media_type = ?`
+		countArgs = append(countArgs, normalizedType)
 	}
 
 	var total int
@@ -199,7 +251,7 @@ func (h *Handler) SearchManga(c *gin.Context) {
 	// Calculate offset for the requested page
 	offset := (page - 1) * limit
 
-	query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url FROM manga WHERE 1=1`
+	query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url, media_type FROM manga WHERE 1=1`
 	args := []interface{}{}
 
 	if req.Title != "" {
@@ -217,9 +269,14 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		args = append(args, req.Status)
 	}
 
-	if req.Genre != "" {
+	for _, g := range genreFilters {
 		query += ` AND genres LIKE ?`
-		args = append(args, "%"+req.Genre+"%")
+		args = append(args, "%"+g+"%")
+	}
+
+	if normalizedType != "" {
+		query += ` AND media_type = ?`
+		args = append(args, normalizedType)
 	}
 
 	query += ` LIMIT ? OFFSET ?`
@@ -246,6 +303,7 @@ func (h *Handler) SearchManga(c *gin.Context) {
 			&manga.TotalChapters,
 			&manga.Description,
 			&manga.CoverURL,
+			&manga.MediaType,
 		)
 		if err != nil {
 			continue
@@ -258,7 +316,7 @@ func (h *Handler) SearchManga(c *gin.Context) {
 		mangas = append(mangas, manga)
 	}
 
-	pagination := calculatePagination(req.Page, limit, total)
+	pagination := calculatePagination(page, limit, total)
 
 	response := models.PaginatedBooksResponse{
 		Mangas:     mangas,

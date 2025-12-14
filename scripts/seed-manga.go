@@ -28,15 +28,17 @@ func main() {
 		dbPath = "./data/mangahub.db"
 	}
 
-	err := database.InitDatabase(dbPath)
+	if err := database.InitDatabase(dbPath); err != nil {
+		log.Fatal("Failed to initialize database:", err)
+	}
 
 	// Check existing count
 	var count int
 	database.DB.QueryRow("SELECT COUNT(*) FROM manga").Scan(&count)
 	fmt.Printf("Current manga count: %d\n", count)
 
-	if count >= 200 {
-		fmt.Println("Database already has 200+ manga. Skipping seed.")
+	if count >= 500 {
+		fmt.Println("Database already has 500+ manga. Skipping seed.")
 		return
 	}
 
@@ -46,23 +48,28 @@ func main() {
 
 	var allManga []MangaData
 
-	// Fetch top 100
-	fmt.Println("\nFetching top 100 manga...")
-	topManga, err := fetchRankingManga(malSource, ctx, "all", 100)
-	if err != nil {
-		log.Fatal("Failed to fetch top manga:", err)
+	// Fetch diverse ranking types to populate frontend filters
+	rankingTypes := []struct {
+		Type  string
+		Label string
+	}{
+		{"all", "top overall"},
+		{"bypopularity", "popular"},
+		{"favorite", "most favorited"},
+		{"manga", "manga"},
+		{"novels", "light novels"},
 	}
-	allManga = append(allManga, topManga...)
-	fmt.Printf("✓ Fetched %d top manga\n", len(topManga))
 
-	// Fetch popular 100
-	fmt.Println("Fetching 100 popular manga...")
-	popularManga, err := fetchRankingManga(malSource, ctx, "bypopularity", 100)
-	if err != nil {
-		log.Fatal("Failed to fetch popular manga:", err)
+	for _, rt := range rankingTypes {
+		fmt.Printf("\nFetching 150 %s...\n", rt.Label)
+		mangas, err := fetchRankingManga(malSource, ctx, rt.Type, 150)
+		if err != nil {
+			log.Printf("Warning: Failed to fetch %s: %v\n", rt.Label, err)
+			continue
+		}
+		allManga = append(allManga, mangas...)
+		fmt.Printf("✓ Fetched %d %s\n", len(mangas), rt.Label)
 	}
-	allManga = append(allManga, popularManga...)
-	fmt.Printf("✓ Fetched %d popular manga\n", len(popularManga))
 
 	// Remove duplicates
 	seen := make(map[string]bool)
@@ -112,6 +119,7 @@ type MangaData struct {
 	Chapters    int
 	Description string
 	CoverURL    string
+	MediaType   string
 }
 
 // Fetch ranking manga
@@ -131,7 +139,7 @@ func fetchRankingManga(source *manga.MALSource, ctx context.Context, rankingType
 		}
 
 		// Call MAL ranking API directly
-		apiURL := fmt.Sprintf("https://api.myanimelist.net/v2/manga/ranking?ranking_type=%s&limit=%d&offset=%d&fields=id,title,main_picture,authors{first_name,last_name},status,num_chapters,synopsis,genres",
+		apiURL := fmt.Sprintf("https://api.myanimelist.net/v2/manga/ranking?ranking_type=%s&limit=%d&offset=%d&fields=id,title,main_picture,authors{first_name,last_name},status,num_chapters,synopsis,genres,media_type",
 			rankingType, fetchLimit, offset)
 
 		mangas, err := fetchFromMAL(clientID, apiURL)
@@ -187,6 +195,7 @@ func fetchFromMAL(clientID, apiURL string) ([]MangaData, error) {
 				Status      string `json:"status"`
 				NumChapters int    `json:"num_chapters"`
 				Synopsis    string `json:"synopsis"`
+				MediaType   string `json:"media_type"`
 				Genres      []struct {
 					Name string `json:"name"`
 				} `json:"genres"`
@@ -232,6 +241,11 @@ func fetchFromMAL(clientID, apiURL string) ([]MangaData, error) {
 			status = "completed"
 		}
 
+		mediaType := strings.ToLower(node.MediaType)
+		if mediaType == "" {
+			mediaType = "manga"
+		}
+
 		results = append(results, MangaData{
 			ID:          fmt.Sprintf("%d", node.ID),
 			Title:       node.Title,
@@ -241,6 +255,7 @@ func fetchFromMAL(clientID, apiURL string) ([]MangaData, error) {
 			Chapters:    node.NumChapters,
 			Description: node.Synopsis,
 			CoverURL:    coverURL,
+			MediaType:   mediaType,
 		})
 	}
 
@@ -251,8 +266,8 @@ func fetchFromMAL(clientID, apiURL string) ([]MangaData, error) {
 func insertManga(m MangaData) bool {
 	genresJSON, _ := json.Marshal(m.Genres)
 
-	query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url) 
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url, media_type) 
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := database.DB.Exec(
 		query,
@@ -264,6 +279,7 @@ func insertManga(m MangaData) bool {
 		m.Chapters,
 		m.Description,
 		m.CoverURL,
+		m.MediaType,
 	)
 
 	if err != nil {
