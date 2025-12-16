@@ -3,6 +3,8 @@ package websocket
 import (
 	"database/sql"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
@@ -31,6 +33,8 @@ func (h *Handler) HandleClientMessage(client *Client, data []byte) error {
 		return h.handleTextMessage(client, msg)
 	case MessageTypeTyping:
 		return h.handleTypingIndicator(client, msg)
+	case MessageTypeCommand:
+		return h.handleCommand(client, msg)
 	default:
 		logger.Warn("Unknown message type", map[string]interface{}{"type": msg.Type})
 	}
@@ -120,11 +124,105 @@ func (h *Handler) saveMessage(fromUserID, toUserID, content string) error {
 	return err
 }
 
+func (h *Handler) handleCommand(client *Client, msg ClientMessage) error {
+	// Determine the raw command string (prefer Command field, fallback to Content)
+	raw := msg.Command
+	if raw == "" {
+		raw = msg.Content
+	}
+
+	// Parse command and args
+	parts := strings.Fields(raw)
+	if len(parts) == 0 {
+		return nil
+	}
+	cmd := parts[0]
+	if strings.HasPrefix(cmd, "/") {
+		cmd = cmd[1:]
+	}
+	args := parts[1:]
+
+	id, _ := utils.GenerateID(16)
+	var responseMsg ServerMessage
+
+	switch cmd {
+	case "users":
+		users := h.manager.GetRoomUsers(msg.Room)
+		responseMsg = ServerMessage{
+			ID:        id,
+			Type:      MessageTypeUserList,
+			From:      "system",
+			Room:      msg.Room,
+			Timestamp: time.Now(),
+			Metadata: map[string]interface{}{
+				"users": users,
+				"count": len(users),
+			},
+		}
+	case "history":
+		// Default history limit; override if a valid argument is provided
+		limit := 20
+		if len(args) > 0 {
+			if n, err := strconv.Atoi(args[0]); err == nil {
+				// Clamp to sane bounds
+				if n < 1 {
+					n = 1
+				}
+				if n > 500 {
+					n = 500
+				}
+				limit = n
+			}
+		}
+		messages, _ := h.GetMessageHistory(client.ID, limit)
+		responseMsg = ServerMessage{
+			ID:        id,
+			Type:      MessageTypeHistory,
+			From:      "system",
+			Room:      msg.Room,
+			Timestamp: time.Now(),
+			Metadata: map[string]interface{}{
+				"messages": messages,
+			},
+		}
+	case "status":
+		responseMsg = ServerMessage{
+			ID:        id,
+			Type:      MessageTypeSystem,
+			From:      "system",
+			Room:      msg.Room,
+			Content:   "Connection status: Online",
+			Timestamp: time.Now(),
+			Metadata: map[string]interface{}{
+				"status": "online",
+				"user":   client.Username,
+			},
+		}
+	default:
+		responseMsg = ServerMessage{
+			ID:        id,
+			Type:      MessageTypeSystem,
+			From:      "system",
+			Room:      msg.Room,
+			Content:   "Unknown command. Type /help for available commands",
+			Timestamp: time.Now(),
+		}
+	}
+
+	data, err := json.Marshal(responseMsg)
+	if err != nil {
+		return err
+	}
+	client.Manager.SendToUser(client.ID, data)
+	return nil
+}
+
 func (h *Handler) GetMessageHistory(userID string, limit int) ([]Message, error) {
-	query := `SELECT id, from_user_id, to_user_id, content, created_at 
-              FROM chat_messages 
-              WHERE from_user_id = ? OR to_user_id = ? OR to_user_id IS NULL
-              ORDER BY created_at DESC LIMIT ?`
+	query := `SELECT cm.id, u.username, cm.to_user_id, cm.content, cm.created_at 
+              FROM chat_messages cm
+              JOIN users u ON cm.from_user_id = u.id
+              WHERE cm.from_user_id = ? OR cm.to_user_id = ? OR cm.to_user_id IS NULL
+              ORDER BY cm.created_at DESC LIMIT ?`
 	rows, err := h.db.Query(query, userID, userID, limit)
 	if err != nil {
 		return nil, err

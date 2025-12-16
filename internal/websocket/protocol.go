@@ -9,6 +9,10 @@ const (
 	MessageTypeSystem   MessageType = "system"
 	MessageTypeTyping   MessageType = "typing"
 	MessageTypePresence MessageType = "presence"
+	MessageTypeCommand  MessageType = "command"
+	MessageTypeUserList MessageType = "userlist"
+	MessageTypeHistory  MessageType = "history"
+	MessageTypeWelcome  MessageType = "welcome"
 )
 
 type Message struct {
@@ -26,6 +30,7 @@ type ClientMessage struct {
 	To      string      `json:"to,omitempty"`
 	Room    string      `json:"room,omitempty"`
 	Content string      `json:"content"`
+	Command string      `json:"command,omitempty"`
 }
 
 type ServerMessage struct {

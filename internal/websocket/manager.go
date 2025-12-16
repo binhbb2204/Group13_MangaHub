@@ -13,16 +13,17 @@ import (
 )
 
 type Client struct {
-	ID         string
-	Username   string
-	Conn       *websocket.Conn
-	Send       chan []byte
-	Manager    *Manager
-	Handler    *Handler
-	LastActive time.Time
-	rateTokens int
-	rateLast   time.Time
-	mu         sync.Mutex
+	ID          string
+	Username    string
+	Conn        *websocket.Conn
+	Send        chan []byte
+	Manager     *Manager
+	Handler     *Handler
+	LastActive  time.Time
+	ConnectedAt time.Time
+	rateTokens  int
+	rateLast    time.Time
+	mu          sync.Mutex
 }
 
 type Manager struct {
@@ -77,11 +78,17 @@ func (m *Manager) Run() {
 				}
 			}
 			m.mu.Unlock()
-			for _, room := range affectedRooms {
-				id, _ := utils.GenerateID(16)
-				leaveMsg := ServerMessage{ID: id, Type: MessageTypePresence, From: "system", Room: room, Content: client.Username + " left the chat", Timestamp: time.Now()}
-				if data, err := json.Marshal(leaveMsg); err == nil {
-					m.broadcastRoom(room, data)
+
+			// Only broadcast leave message if connection lasted more than 2 seconds
+			// This suppresses spam from quick send commands
+			connectionDuration := time.Since(client.ConnectedAt)
+			if connectionDuration > 2*time.Second {
+				for _, room := range affectedRooms {
+					id, _ := utils.GenerateID(16)
+					leaveMsg := ServerMessage{ID: id, Type: MessageTypePresence, From: "system", Room: room, Content: client.Username + " left the chat", Timestamp: time.Now()}
+					if data, err := json.Marshal(leaveMsg); err == nil {
+						m.broadcastRoom(room, data)
+					}
 				}
 			}
 
@@ -148,6 +155,49 @@ func (m *Manager) GetActiveUsers() []string {
 		users = append(users, id)
 	}
 	return users
+}
+
+func (m *Manager) GetRoomUsers(room string) []map[string]interface{} {
+	if room == "" {
+		room = "global"
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	roomClients, ok := m.rooms[room]
+	if !ok {
+		return []map[string]interface{}{}
+	}
+
+	users := make([]map[string]interface{}, 0, len(roomClients))
+	for client := range roomClients {
+		users = append(users, map[string]interface{}{
+			"id":       client.ID,
+			"username": client.Username,
+			"room":     room,
+		})
+	}
+	return users
+}
+
+func (m *Manager) GetClientCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.clients)
+}
+
+func (m *Manager) GetRoomClientCount(room string) int {
+	if room == "" {
+		room = "global"
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	roomClients, ok := m.rooms[room]
+	if !ok {
+		return 0
+	}
+	return len(roomClients)
 }
 
 func (m *Manager) BroadcastMessage(message []byte) {

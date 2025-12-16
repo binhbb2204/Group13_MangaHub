@@ -78,14 +78,16 @@ func (s *Server) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
 	client := &Client{
-		ID:         claims.UserID,
-		Username:   claims.Username,
-		Conn:       conn,
-		Send:       make(chan []byte, 256),
-		Manager:    s.manager,
-		Handler:    s.handler,
-		LastActive: time.Now(),
+		ID:          claims.UserID,
+		Username:    claims.Username,
+		Conn:        conn,
+		Send:        make(chan []byte, 256),
+		Manager:     s.manager,
+		Handler:     s.handler,
+		LastActive:  now,
+		ConnectedAt: now,
 	}
 
 	s.manager.register <- client
@@ -103,8 +105,51 @@ func (s *Server) HandleWebSocket(c *gin.Context) {
 		s.manager.broadcastRoom("global", data)
 	}
 
+	// Send welcome message after broadcast
+	go s.sendWelcomeMessage(client)
+
 	go client.WritePump()
 	go client.ReadPump(connID, s.bridge, s.broadcaster)
+}
+
+func (s *Server) sendWelcomeMessage(client *Client) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Silent fail - client likely disconnected (e.g., quick send command)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond) // Allow client to be fully registered
+
+	// Don't bother sending welcome if client disconnected quickly
+	if time.Since(client.ConnectedAt) > 2*time.Second {
+		userCount := s.manager.GetRoomClientCount("global")
+		recentMessages, _ := s.handler.GetMessageHistory(client.ID, 5)
+
+		id, _ := utils.GenerateID(16)
+		welcomeMsg := ServerMessage{
+			ID:        id,
+			Type:      MessageTypeWelcome,
+			From:      "system",
+			Room:      "global",
+			Content:   "Connected to General Chat",
+			Timestamp: time.Now(),
+			Metadata: map[string]interface{}{
+				"user_count":      userCount,
+				"room":            "general",
+				"recent_messages": recentMessages,
+			},
+		}
+
+		data, err := json.Marshal(welcomeMsg)
+		if err == nil {
+			select {
+			case client.Send <- data:
+			default:
+				// Channel is full or closed, skip welcome message
+			}
+		}
+	}
 }
 
 func (s *Server) GetActiveUsers() []string {
