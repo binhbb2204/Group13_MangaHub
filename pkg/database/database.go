@@ -65,7 +65,8 @@ func createTables() error {
         total_chapters INTEGER DEFAULT 0,
         description TEXT,
         cover_url TEXT,
-        media_type TEXT DEFAULT 'manga'
+        media_type TEXT DEFAULT 'manga',
+        mangadex_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS user_progress (

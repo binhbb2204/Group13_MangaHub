@@ -9,7 +9,7 @@ type Manga struct {
 	TotalChapters     int                      `json:"total_chapters" db:"total_chapters"`
 	Description       string                   `json:"description" db:"description"`
 	CoverURL          string                   `json:"cover_url" db:"cover_url"`
-	MangaDexID        string                   `json:"mangadex_id,omitempty" db:"mangadex_id"`
+	MangaDexID        string                   `json:"mangadex_id" db:"mangadex_id"`
 	AlternativeTitles map[string]interface{}   `json:"alternative_titles,omitempty"`
 	StartDate         string                   `json:"start_date,omitempty"`
 	EndDate           string                   `json:"end_date,omitempty"`

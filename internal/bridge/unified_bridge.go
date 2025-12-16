@@ -83,6 +83,12 @@ func (ub *UnifiedBridge) SetUDPBroadcaster(broadcaster UDPBroadcaster) {
 	ub.logger.Info("udp_broadcaster_set")
 }
 
+func (ub *UnifiedBridge) GetUDPBroadcaster() UDPBroadcaster {
+	ub.clientsLock.RLock()
+	defer ub.clientsLock.RUnlock()
+	return ub.udpBroadcaster
+}
+
 func (ub *UnifiedBridge) SetSessionManager(sm SessionManager) {
 	ub.clientsLock.Lock()
 	defer ub.clientsLock.Unlock()
