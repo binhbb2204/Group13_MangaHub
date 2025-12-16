@@ -24,7 +24,7 @@ func main() {
 
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
-		dbPath = "./data/manga_hub.db"
+		dbPath = "./data/mangahub.db"
 	}
 
 	if err := database.InitDatabase(dbPath); err != nil {

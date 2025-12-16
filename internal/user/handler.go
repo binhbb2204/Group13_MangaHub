@@ -1,7 +1,9 @@
 package user
 
 import (
+	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -89,14 +91,15 @@ func (h *Handler) AddToLibrary(c *gin.Context) {
 // GetLibrary gets user's manga library
 func (h *Handler) GetLibrary(c *gin.Context) {
 	userID := c.GetString("user_id")
+
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
 	query := `
-        SELECT m.id, m.title, m.author, m.genres, m.status, m.total_chapters, m.description, m.cover_url,
-               up.current_chapter, up.status, up.updated_at
+        SELECT m.id, m.title, m.author, m.genres, m.status, m.total_chapters, m.description, m.cover_url, m.mangadex_id,
+               up.current_chapter, up.status, up.user_rating, up.updated_at
         FROM user_progress up
         JOIN manga m ON up.manga_id = m.id
         WHERE up.user_id = ?
@@ -119,6 +122,9 @@ func (h *Handler) GetLibrary(c *gin.Context) {
 	for rows.Next() {
 		var mp models.MangaProgress
 		var genresJSON string
+		var mangadexID sql.NullString // Handle NULL values
+
+		var userRating sql.NullFloat64 // Handle NULL values
 
 		err := rows.Scan(
 			&mp.Manga.ID,
@@ -129,12 +135,31 @@ func (h *Handler) GetLibrary(c *gin.Context) {
 			&mp.Manga.TotalChapters,
 			&mp.Manga.Description,
 			&mp.Manga.CoverURL,
+			&mangadexID, // Scan into sql.NullString
 			&mp.CurrentChapter,
 			&mp.Status,
+			&userRating, // Scan into sql.NullFloat64
 			&mp.UpdatedAt,
 		)
 		if err != nil {
+			// Log error but continue processing other rows
+			log.Printf("[ERROR] Failed to scan library row: %v", err)
 			continue
+		}
+
+		// Convert sql.NullString to regular string
+		if mangadexID.Valid {
+			mp.Manga.MangaDexID = mangadexID.String
+		} else {
+			mp.Manga.MangaDexID = "" // Use empty string for NULL
+		}
+
+		// Convert user rating (use pointer for explicit null)
+		if userRating.Valid {
+			rating := userRating.Float64
+			mp.UserRating = &rating
+		} else {
+			mp.UserRating = nil // Explicit null in JSON
 		}
 
 		// Parse genres JSON
@@ -179,13 +204,24 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 		return
 	}
 
-	// Build update query
-	query := `UPDATE user_progress SET current_chapter = ?, updated_at = ?`
-	args := []interface{}{req.CurrentChapter, time.Now()}
+	// Build update query - start with updated_at
+	query := `UPDATE user_progress SET updated_at = ?`
+	args := []interface{}{time.Now()}
+
+	// Add current_chapter if provided
+	if req.CurrentChapter != nil {
+		query += `, current_chapter = ?`
+		args = append(args, *req.CurrentChapter)
+	}
 
 	if req.Status != "" {
 		query += `, status = ?`
 		args = append(args, req.Status)
+	}
+
+	if req.UserRating != nil {
+		query += `, user_rating = ?`
+		args = append(args, *req.UserRating)
 	}
 
 	query += ` WHERE user_id = ? AND manga_id = ?`
@@ -198,14 +234,77 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 	}
 
 	h.bridge.NotifyProgressUpdate(bridge.ProgressUpdateEvent{
-		UserID:       userID,
-		MangaID:      req.MangaID,
-		ChapterID:    req.CurrentChapter,
+		UserID:  userID,
+		MangaID: req.MangaID,
+		ChapterID: func() int {
+			if req.CurrentChapter != nil {
+				return *req.CurrentChapter
+			}
+			return 0
+		}(),
 		Status:       req.Status,
 		LastReadDate: time.Now(),
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Progress updated successfully"})
+}
+
+// GetProgress gets user's progress for a specific manga
+func (h *Handler) GetProgress(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	mangaID := c.Param("manga_id")
+	if mangaID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Manga ID is required"})
+		return
+	}
+
+	query := `
+		SELECT current_chapter, status, user_rating, updated_at
+		FROM user_progress
+		WHERE user_id = ? AND manga_id = ?
+	`
+
+	var currentChapter int
+	var status string
+	var userRating sql.NullFloat64
+	var updatedAt time.Time
+
+	err := database.DB.QueryRow(query, userID, mangaID).Scan(
+		&currentChapter,
+		&status,
+		&userRating,
+		&updatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Manga not in library"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	response := gin.H{
+		"manga_id":        mangaID,
+		"current_chapter": currentChapter,
+		"status":          status,
+		"updated_at":      updatedAt,
+	}
+
+	// Add user_rating if it exists
+	if userRating.Valid {
+		response["user_rating"] = userRating.Float64
+	} else {
+		response["user_rating"] = nil
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // RemoveFromLibrary removes manga from user's library

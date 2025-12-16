@@ -194,7 +194,7 @@ func main() {
 
 	log.Info("manga_hub_orchestrator_starting")
 
-	dbPath := getEnv("DB_PATH", "./data/manga_hub.db")
+	dbPath := getEnv("DB_PATH", "./data/mangahub.db")
 	if err := database.InitDatabase(dbPath); err != nil {
 		log.Error("database_init_failed", "error", err.Error())
 		os.Exit(1)

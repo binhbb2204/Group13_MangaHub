@@ -72,6 +72,7 @@ func createTables() error {
         manga_id TEXT NOT NULL,
         current_chapter INTEGER DEFAULT 0,
         status TEXT DEFAULT 'plan_to_read',
+        user_rating REAL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id, manga_id),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
