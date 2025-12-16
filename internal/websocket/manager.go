@@ -112,6 +112,15 @@ func (m *Manager) joinRoom(c *Client, room string) {
 		room = "global"
 	}
 	m.mu.Lock()
+	// When joining a non-global room, remove from global to avoid cross-room message leakage
+	if room != "global" {
+		if globalSet, ok := m.rooms["global"]; ok {
+			delete(globalSet, c)
+			if len(globalSet) == 0 {
+				delete(m.rooms, "global")
+			}
+		}
+	}
 	if _, ok := m.rooms[room]; !ok {
 		m.rooms[room] = make(map[*Client]struct{})
 	}

@@ -89,6 +89,16 @@ func runChatJoin(cmd *cobra.Command, args []string) {
 	}
 	defer conn.Close()
 
+	// Immediately join the target room by sending a typing indicator
+	// This ensures we're subscribed to the room before any messages arrive
+	joinRoomMsg := map[string]interface{}{
+		"type": "typing",
+		"room": chatRoom,
+	}
+	if data, err := json.Marshal(joinRoomMsg); err == nil {
+		conn.WriteMessage(websocket.TextMessage, data)
+	}
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
