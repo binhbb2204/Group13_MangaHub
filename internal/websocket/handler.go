@@ -63,6 +63,17 @@ func (h *Handler) handleTextMessage(client *Client, msg ClientMessage) error {
 	if room == "" {
 		room = "global"
 	}
+
+	// Get or create conversation
+	convID, err := h.getOrCreateConversation(room, client.ID)
+	if err != nil {
+		logger.Warn("Failed to get/create conversation", map[string]interface{}{"error": err.Error()})
+		return err
+	}
+
+	// Join user to conversation
+	h.joinConversation(client.ID, convID)
+
 	id, _ := utils.GenerateID(16)
 	serverMsg := ServerMessage{ID: id, Type: MessageTypeText, From: client.Username, Room: room, Content: msg.Content, Timestamp: time.Now()}
 	if msg.To != "" {
@@ -70,7 +81,7 @@ func (h *Handler) handleTextMessage(client *Client, msg ClientMessage) error {
 	}
 	// Ensure client is a member of the target room before broadcasting
 	client.Manager.joinRoom(client, room)
-	if err := h.saveMessage(client.ID, msg.To, msg.Content); err != nil {
+	if err := h.saveMessageToConversation(convID, client.ID, msg.Content); err != nil {
 		logger.Warn("Failed to save message", map[string]interface{}{"error": err.Error()})
 	}
 	data, err := json.Marshal(serverMsg)
@@ -124,6 +135,79 @@ func (h *Handler) saveMessage(fromUserID, toUserID, content string) error {
 	return err
 }
 
+func (h *Handler) saveMessageToConversation(conversationID, senderID, content string) error {
+	id, _ := utils.GenerateID(16)
+	now := time.Now().Format("2006-01-02 15:04:05")
+	query := `INSERT INTO messages (id, conversation_id, sender_id, content, created_at) 
+			  VALUES (?, ?, ?, ?, ?)`
+	_, err := h.db.Exec(query, id, conversationID, senderID, content, now)
+	if err != nil {
+		return err
+	}
+	// Update last_message_at for conversation
+	h.db.Exec(`UPDATE conversations SET last_message_at = ? WHERE id = ?`, now, conversationID)
+	return nil
+}
+
+func (h *Handler) getOrCreateConversation(roomName, userID string) (string, error) {
+	if roomName == "" {
+		roomName = "global"
+	}
+
+	// Determine conversation type and name
+	var convType, convName, mangaID string
+	if roomName == "global" {
+		convType = "global"
+		convName = "global"
+	} else if strings.HasPrefix(roomName, "manga-") {
+		convType = "manga"
+		convName = roomName
+		mangaID = strings.TrimPrefix(roomName, "manga-")
+		// Validate manga exists
+		var exists bool
+		err := h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)`, mangaID).Scan(&exists)
+		if err != nil || !exists {
+			return "", &ValidationError{Field: "manga_id", Message: "manga not found"}
+		}
+	} else {
+		convType = "custom"
+		convName = roomName
+	}
+
+	// Check if conversation exists
+	var convID string
+	err := h.db.QueryRow(`SELECT id FROM conversations WHERE name = ?`, convName).Scan(&convID)
+	if err == sql.ErrNoRows {
+		// Create new conversation
+		convID, _ = utils.GenerateID(16)
+		var mangaIDVal interface{}
+		if mangaID != "" {
+			mangaIDVal = mangaID
+		} else {
+			mangaIDVal = nil
+		}
+		now := time.Now().Format("2006-01-02 15:04:05")
+		_, err = h.db.Exec(`INSERT INTO conversations (id, name, type, manga_id, created_by, created_at, last_message_at) 
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, convID, convName, convType, mangaIDVal, userID, now, now)
+		if err != nil {
+			return "", err
+		}
+		logger.Info("Created new conversation", map[string]interface{}{"id": convID, "name": convName, "type": convType})
+
+		// Set creator as owner for custom rooms
+		if convType == "custom" {
+			h.db.Exec(`INSERT OR IGNORE INTO user_conversation_history (user_id, conversation_id, role, joined_at, unread_count) VALUES (?, ?, 'owner', ?, 0)`, userID, convID, now)
+		}
+	}
+	return convID, nil
+}
+
+func (h *Handler) joinConversation(userID, conversationID string) {
+	now := time.Now().Format("2006-01-02 15:04:05")
+	h.db.Exec(`INSERT OR IGNORE INTO user_conversation_history (user_id, conversation_id, joined_at, unread_count)
+		VALUES (?, ?, ?, 0)`, userID, conversationID, now)
+}
+
 func (h *Handler) handleCommand(client *Client, msg ClientMessage) error {
 	// Determine the raw command string (prefer Command field, fallback to Content)
 	raw := msg.Command
@@ -174,7 +258,12 @@ func (h *Handler) handleCommand(client *Client, msg ClientMessage) error {
 				limit = n
 			}
 		}
-		messages, _ := h.GetMessageHistory(client.ID, limit)
+		room := msg.Room
+		if room == "" {
+			room = "global"
+		}
+		convID, _ := h.getOrCreateConversation(room, client.ID)
+		messages, _ := h.GetConversationHistory(convID, limit)
 		responseMsg = ServerMessage{
 			ID:        id,
 			Type:      MessageTypeHistory,
@@ -239,6 +328,32 @@ func (h *Handler) GetMessageHistory(userID string, limit int) ([]Message, error)
 			msg.To = toUser.String
 		}
 		messages = append(messages, msg)
+	}
+	return messages, nil
+}
+
+func (h *Handler) GetConversationHistory(conversationID string, limit int) ([]Message, error) {
+	query := `SELECT m.id, u.username, m.content, m.created_at 
+              FROM messages m
+              JOIN users u ON m.sender_id = u.id
+              WHERE m.conversation_id = ?
+              ORDER BY m.created_at DESC LIMIT ?`
+	rows, err := h.db.Query(query, conversationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var messages []Message
+	for rows.Next() {
+		var msg Message
+		if err := rows.Scan(&msg.ID, &msg.From, &msg.Content, &msg.Timestamp); err != nil {
+			continue
+		}
+		messages = append(messages, msg)
+	}
+	// Reverse to get chronological order
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 	return messages, nil
 }
