@@ -64,7 +64,8 @@ func createTables() error {
         total_chapters INTEGER DEFAULT 0,
         description TEXT,
         cover_url TEXT,
-        media_type TEXT DEFAULT 'manga'
+        media_type TEXT DEFAULT 'manga',
+        mangadex_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS user_progress (
@@ -102,6 +103,10 @@ func createTables() error {
 	if err := ensureMediaTypeColumn(); err != nil {
 		return err
 	}
+	// Migration for existing DBs that don't have mangadex_id column
+	if err := ensureMangaDexIDColumn(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -130,6 +135,36 @@ func ensureMediaTypeColumn() error {
 			log.Printf("Warning: adding media_type column failed: %v", err)
 		} else {
 			log.Println("✓ Added media_type column to existing database")
+		}
+	}
+	return nil
+}
+
+func ensureMangaDexIDColumn() error {
+	rows, err := DB.Query(`PRAGMA table_info(manga);`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	hasMangaDexID := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, "mangadex_id") {
+			hasMangaDexID = true
+			break
+		}
+	}
+	if !hasMangaDexID {
+		if _, err := DB.Exec(`ALTER TABLE manga ADD COLUMN mangadex_id TEXT;`); err != nil {
+			log.Printf("Warning: adding mangadex_id column failed: %v", err)
+		} else {
+			log.Println("✓ Added mangadex_id column to existing database")
 		}
 	}
 	return nil

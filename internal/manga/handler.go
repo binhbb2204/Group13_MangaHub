@@ -627,32 +627,77 @@ func (h *Handler) GetMangaInfo(c *gin.Context) {
 
 	ctx := context.Background()
 
+	var manga *models.Manga
+	var err error
+
 	if isUUID(mangaID) {
 		mangadex := NewMangaDexSource()
-		manga, err := mangadex.GetMangaByID(ctx, mangaID)
+		manga, err = mangadex.GetMangaByID(ctx, mangaID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, manga)
-		return
-	}
+	} else {
+		// Fallback to MAL (numeric IDs)
+		for _, ch := range mangaID {
+			if ch < '0' || ch > '9' {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Manga ID must be numeric or a MangaDex UUID"})
+				return
+			}
+		}
 
-	// Fallback to MAL (numeric IDs)
-	for _, ch := range mangaID {
-		if ch < '0' || ch > '9' {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Manga ID must be numeric or a MangaDex UUID"})
+		manga, err = h.externalSource.GetMangaByID(ctx, mangaID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 	}
 
-	manga, err := h.externalSource.GetMangaByID(ctx, mangaID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
+	// Add local rating statistics to external manga data
+	ratingQuery := `
+		SELECT 
+			ROUND(AVG(user_rating), 1) as average_rating,
+			COUNT(*) as total_ratings,
+			COUNT(CASE WHEN ROUND(user_rating) = 5 THEN 1 END) as rating_5,
+			COUNT(CASE WHEN ROUND(user_rating) = 4 THEN 1 END) as rating_4,
+			COUNT(CASE WHEN ROUND(user_rating) = 3 THEN 1 END) as rating_3,
+			COUNT(CASE WHEN ROUND(user_rating) = 2 THEN 1 END) as rating_2,
+			COUNT(CASE WHEN ROUND(user_rating) = 1 THEN 1 END) as rating_1
+		FROM user_progress
+		WHERE manga_id = ? AND user_rating IS NOT NULL
+	`
+
+	var avgRating sql.NullFloat64
+	var totalCount int
+	var r5, r4, r3, r2, r1 int
+
+	err = database.DB.QueryRow(ratingQuery, mangaID).Scan(
+		&avgRating, &totalCount, &r5, &r4, &r3, &r2, &r1,
+	)
+
+	// Build response with external manga data + local rating stats
+	response := make(map[string]interface{})
+
+	// Convert manga struct to map (preserve all external API fields)
+	mangaJSON, _ := json.Marshal(manga)
+	json.Unmarshal(mangaJSON, &response)
+
+	// Add rating_stats if we have ratings
+	if err == nil && totalCount > 0 {
+		response["rating_stats"] = gin.H{
+			"average":     avgRating.Float64,
+			"total_count": totalCount,
+			"distribution": gin.H{
+				"5": r5,
+				"4": r4,
+				"3": r3,
+				"2": r2,
+				"1": r1,
+			},
+		}
 	}
 
-	c.JSON(http.StatusOK, manga)
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Handler) GetMangaByID(c *gin.Context) {
@@ -687,7 +732,56 @@ func (h *Handler) GetMangaByID(c *gin.Context) {
 		json.Unmarshal([]byte(genresJSON), &manga.Genres)
 	}
 
-	c.JSON(http.StatusOK, manga)
+	// Get rating statistics
+	ratingQuery := `
+		SELECT 
+			ROUND(AVG(user_rating), 1) as average_rating,
+			COUNT(*) as total_ratings,
+			COUNT(CASE WHEN ROUND(user_rating) = 5 THEN 1 END) as rating_5,
+			COUNT(CASE WHEN ROUND(user_rating) = 4 THEN 1 END) as rating_4,
+			COUNT(CASE WHEN ROUND(user_rating) = 3 THEN 1 END) as rating_3,
+			COUNT(CASE WHEN ROUND(user_rating) = 2 THEN 1 END) as rating_2,
+			COUNT(CASE WHEN ROUND(user_rating) = 1 THEN 1 END) as rating_1
+		FROM user_progress
+		WHERE manga_id = ? AND user_rating IS NOT NULL
+	`
+
+	var avgRating sql.NullFloat64
+	var totalCount int
+	var r5, r4, r3, r2, r1 int
+
+	err = database.DB.QueryRow(ratingQuery, mangaID).Scan(
+		&avgRating, &totalCount, &r5, &r4, &r3, &r2, &r1,
+	)
+
+	// Build response with rating stats
+	response := gin.H{
+		"id":             manga.ID,
+		"title":          manga.Title,
+		"author":         manga.Author,
+		"genres":         manga.Genres,
+		"status":         manga.Status,
+		"total_chapters": manga.TotalChapters,
+		"description":    manga.Description,
+		"cover_url":      manga.CoverURL,
+	}
+
+	// Only include rating_stats if there are ratings
+	if err == nil && totalCount > 0 {
+		response["rating_stats"] = gin.H{
+			"average":     avgRating.Float64,
+			"total_count": totalCount,
+			"distribution": gin.H{
+				"5": r5,
+				"4": r4,
+				"3": r3,
+				"2": r2,
+				"1": r1,
+			},
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // CreateManga creates a new manga entry (for testing purposes)
@@ -709,8 +803,8 @@ func (h *Handler) CreateManga(c *gin.Context) {
 		return
 	}
 
-	query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url, mangadex_id) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err = database.DB.Exec(
 		query,
 		manga.ID,
@@ -721,6 +815,7 @@ func (h *Handler) CreateManga(c *gin.Context) {
 		manga.TotalChapters,
 		manga.Description,
 		manga.CoverURL,
+		manga.MangaDexID,
 	)
 
 	if err != nil {

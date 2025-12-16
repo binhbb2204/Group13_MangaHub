@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/models"
 	"github.com/gin-gonic/gin"
@@ -15,13 +17,15 @@ import (
 
 // Handler handles user-related operations
 type Handler struct {
-	bridge *bridge.Bridge
+	bridge         *bridge.Bridge
+	externalSource manga.ExternalSource
 }
 
 // NewHandler creates a new user handler
 func NewHandler(br *bridge.Bridge) *Handler {
 	return &Handler{
-		bridge: br,
+		bridge:         br,
+		externalSource: manga.NewMALSource(),
 	}
 }
 
@@ -58,14 +62,42 @@ func (h *Handler) AddToLibrary(c *gin.Context) {
 		return
 	}
 
-	// Check if manga exists
-	var exists bool
-	checkQuery := `SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)`
-	err := database.DB.QueryRow(checkQuery, req.MangaID).Scan(&exists)
-	if err != nil || !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found"})
+	// DEBUG: Log that we're entering this function
+	log.Printf("[DEBUG] AddToLibrary called for manga ID: %s, user ID: %s", req.MangaID, userID)
+
+	// Fetch complete manga metadata from MAL API
+	ctx := context.Background()
+	mangaData, err := h.externalSource.GetMangaByID(ctx, req.MangaID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch manga from MAL for ID %s: %v", req.MangaID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found in external API"})
 		return
 	}
+	log.Printf("[DEBUG] Successfully fetched manga from MAL: %s (Total Chapters: %d)", mangaData.Title, mangaData.TotalChapters)
+
+	// Fetch MangaDex ID from mapping API (with timeout + fallback)
+	log.Printf("[DEBUG] Calling FetchMangaDexID for MAL ID: %s", req.MangaID)
+	mangadexID := manga.FetchMangaDexID(req.MangaID)
+	mangaData.MangaDexID = mangadexID
+	log.Printf("[DEBUG] MangaDex ID result: %s", mangadexID)
+
+	// If we got a MangaDex ID, fetch the actual chapter count from MangaDex
+	if mangadexID != "" {
+		chapterCount := manga.FetchMangaDexChapterCount(mangadexID)
+		if chapterCount > 0 {
+			log.Printf("[DEBUG] Updated total_chapters from MAL (%d) to MangaDex (%d)", mangaData.TotalChapters, chapterCount)
+			mangaData.TotalChapters = chapterCount
+		}
+	}
+
+	// Save or update manga in database with complete metadata (UPSERT)
+	if err := h.saveMangaToDB(mangaData); err != nil {
+		log.Printf("[ERROR] Failed to save manga %s to database: %v", req.MangaID, err)
+		// Continue anyway - user progress is more important
+	}
+
+	// Auto-set status: new manga always starts as "plan_to_read" (current_chapter = 0)
+	status := "plan_to_read"
 
 	// Insert or update user progress
 	query := `INSERT INTO user_progress (user_id, manga_id, current_chapter, status, updated_at)
@@ -73,7 +105,7 @@ func (h *Handler) AddToLibrary(c *gin.Context) {
               ON CONFLICT(user_id, manga_id) DO UPDATE SET status = ?, updated_at = ?`
 
 	now := time.Now()
-	_, err = database.DB.Exec(query, userID, req.MangaID, req.Status, now, req.Status, now)
+	_, err = database.DB.Exec(query, userID, req.MangaID, status, now, status, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add manga to library"})
 		return
@@ -86,6 +118,43 @@ func (h *Handler) AddToLibrary(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Manga added to library successfully"})
+}
+
+// saveMangaToDB saves or updates manga in database with UPSERT
+func (h *Handler) saveMangaToDB(m *models.Manga) error {
+	genresJSON, err := json.Marshal(m.Genres)
+	if err != nil {
+		return err
+	}
+
+	query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url, mangadex_id, media_type)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	          ON CONFLICT(id) DO UPDATE SET 
+	              title = excluded.title,
+	              author = excluded.author,
+	              genres = excluded.genres,
+	              status = excluded.status,
+	              total_chapters = excluded.total_chapters,
+	              description = excluded.description,
+	              cover_url = excluded.cover_url,
+	              mangadex_id = excluded.mangadex_id,
+	              media_type = excluded.media_type`
+
+	_, err = database.DB.Exec(
+		query,
+		m.ID,
+		m.Title,
+		m.Author,
+		string(genresJSON),
+		m.Status,
+		m.TotalChapters,
+		m.Description,
+		m.CoverURL,
+		m.MangaDexID,
+		m.MediaType,
+	)
+
+	return err
 }
 
 // GetLibrary gets user's manga library
@@ -204,17 +273,32 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 		return
 	}
 
+	// Get manga total_chapters for auto-status calculation
+	var totalChapters int
+	mangaQuery := `SELECT total_chapters FROM manga WHERE id = ?`
+	database.DB.QueryRow(mangaQuery, req.MangaID).Scan(&totalChapters)
+
 	// Build update query - start with updated_at
 	query := `UPDATE user_progress SET updated_at = ?`
 	args := []interface{}{time.Now()}
 
-	// Add current_chapter if provided
+	// Auto-calculate status based on chapter progress
+	var autoStatus string
 	if req.CurrentChapter != nil {
-		query += `, current_chapter = ?`
-		args = append(args, *req.CurrentChapter)
-	}
+		currentChapter := *req.CurrentChapter
 
-	if req.Status != "" {
+		if currentChapter == 0 {
+			autoStatus = "plan_to_read"
+		} else if totalChapters > 0 && currentChapter >= totalChapters {
+			autoStatus = "completed"
+		} else {
+			autoStatus = "reading"
+		}
+
+		query += `, current_chapter = ?, status = ?`
+		args = append(args, currentChapter, autoStatus)
+	} else if req.Status != "" {
+		// Allow manual status override if no chapter update
 		query += `, status = ?`
 		args = append(args, req.Status)
 	}
@@ -242,7 +326,7 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 			}
 			return 0
 		}(),
-		Status:       req.Status,
+		Status:       autoStatus,
 		LastReadDate: time.Now(),
 	})
 
