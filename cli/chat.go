@@ -44,6 +44,7 @@ var chatHistoryCmd = &cobra.Command{
 
 var chatRoom string
 var chatMangaID string
+var chatRoomDisplayName string // For displaying manga titles instead of IDs
 var historyLimit int
 
 func init() {
@@ -75,7 +76,18 @@ func runChatJoin(cmd *cobra.Command, args []string) {
 
 	// Handle manga-specific chat
 	if chatMangaID != "" {
+		// Fetch manga name for display
+		mangaName, err := fetchMangaName(chatMangaID)
+		if err != nil {
+			printError(fmt.Sprintf("Failed to fetch manga name: %v", err))
+			return
+		}
+		// Use ID in room name so backend can validate the manga exists
 		chatRoom = "manga-" + chatMangaID
+		chatRoomDisplayName = mangaName // Store for display
+		fmt.Printf("Joining manga room: %s\n", mangaName)
+	} else {
+		chatRoomDisplayName = chatRoom
 	}
 
 	// Get server endpoint (auto-detected from health endpoint)
@@ -199,6 +211,7 @@ func runChatSend(cmd *cobra.Command, args []string) {
 
 	// Handle manga-specific chat
 	if chatMangaID != "" {
+		// Use ID in room name so backend can validate the manga exists
 		chatRoom = "manga-" + chatMangaID
 	}
 
@@ -254,6 +267,7 @@ func runChatHistory(cmd *cobra.Command, args []string) {
 	// Handle manga-specific chat
 	room := chatRoom
 	if chatMangaID != "" {
+		// Use ID in room name so backend can validate the manga exists
 		room = "manga-" + chatMangaID
 	}
 
@@ -383,7 +397,11 @@ func handleIncomingMessage(msg map[string]interface{}, username, currentRoom str
 		// After welcome, show prompt for input
 		fmt.Printf("%s> ", username)
 	case "presence":
-		fmt.Printf("\n[%s/%s] %s: %s\n", room, msgType, from, content)
+		displayRoom := chatRoomDisplayName
+		if displayRoom == "" {
+			displayRoom = room
+		}
+		fmt.Printf("\n[%s/%s] %s: %s\n", displayRoom, msgType, from, content)
 		// Reprint prompt after incoming message
 		fmt.Printf("%s> ", username)
 
@@ -474,7 +492,11 @@ func handleIncomingMessage(msg map[string]interface{}, username, currentRoom str
 		fmt.Printf("\n%s> ", username)
 
 	default:
-		fmt.Printf("\n[%s/%s] %s: %s\n", room, msgType, from, content)
+		displayRoom := chatRoomDisplayName
+		if displayRoom == "" {
+			displayRoom = room
+		}
+		fmt.Printf("\n[%s/%s] %s: %s\n", displayRoom, msgType, from, content)
 		// Reprint prompt for any other message types
 		fmt.Printf("%s> ", username)
 	}
@@ -637,4 +659,35 @@ func detectServerIP(port string) string {
 	}
 
 	return ""
+}
+
+// fetchMangaName fetches the manga title by ID to use as room name
+func fetchMangaName(mangaID string) (string, error) {
+	// Get API server endpoint
+	apiHost := "localhost"
+	apiPort := getEnvOrDefault("API_PORT", "8080")
+
+	if detectedIP := detectServerIP(apiPort); detectedIP != "" {
+		apiHost = detectedIP
+	}
+
+	apiURL := fmt.Sprintf("http://%s:%s/manga/info/%s", apiHost, apiPort, mangaID)
+	resp, err := http.Get(apiURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var mangaData map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&mangaData); err != nil {
+		return "", err
+	}
+
+	// Try to get title
+	if title, ok := mangaData["title"].(string); ok && title != "" {
+		return title, nil
+	}
+
+	// Fallback to manga-id if title not found
+	return "manga-" + mangaID, nil
 }

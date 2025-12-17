@@ -620,6 +620,20 @@ func (h *Handler) GetMangaInfo(c *gin.Context) {
 		return
 	}
 
+	// First check if manga exists in local database
+	var exists bool
+	checkQuery := `SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)`
+	err := database.DB.QueryRow(checkQuery, mangaID).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check manga existence"})
+		return
+	}
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Manga does not exist in database"})
+		return
+	}
+
 	// Decide source: UUID-style goes to MangaDex, numeric goes to MAL
 	isUUID := func(id string) bool {
 		return len(id) == 36 && strings.Count(id, "-") == 4
@@ -628,7 +642,6 @@ func (h *Handler) GetMangaInfo(c *gin.Context) {
 	ctx := context.Background()
 
 	var manga *models.Manga
-	var err error
 
 	if isUUID(mangaID) {
 		mangadex := NewMangaDexSource()

@@ -323,7 +323,7 @@ func (h *Handler) handleCommand(client *Client, msg ClientMessage) error {
 			ID:        id,
 			Type:      MessageTypeHistory,
 			From:      "system",
-			Room:      msg.Room,
+			Room:      room,
 			Timestamp: time.Now(),
 			Metadata: map[string]interface{}{
 				"messages": messages,
