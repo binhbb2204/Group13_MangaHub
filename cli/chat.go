@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/cli/config"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 )
@@ -76,10 +78,20 @@ func runChatJoin(cmd *cobra.Command, args []string) {
 		chatRoom = "manga-" + chatMangaID
 	}
 
-	fmt.Printf("Connecting to WebSocket chat server at ws://localhost:%s...\n", getEnvOrDefault("WEBSOCKET_PORT", "9093"))
+	// Get server endpoint (auto-detected from health endpoint)
+	wsPort := getEnvOrDefault("WEBSOCKET_PORT", "9093")
+	wsHost := "localhost"
 
-	wsURL := fmt.Sprintf("ws://localhost:%s/ws/chat?token=%s",
-		getEnvOrDefault("WEBSOCKET_PORT", "9093"),
+	// Try to auto-detect from server health endpoint
+	if detectedIP := detectServerIP(wsPort); detectedIP != "" {
+		wsHost = detectedIP
+	}
+
+	fmt.Printf("Connecting to WebSocket chat server at ws://%s:%s...\n", wsHost, wsPort)
+
+	wsURL := fmt.Sprintf("ws://%s:%s/ws/chat?token=%s",
+		wsHost,
+		wsPort,
 		url.QueryEscape(cfg.User.Token))
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -190,8 +202,14 @@ func runChatSend(cmd *cobra.Command, args []string) {
 		chatRoom = "manga-" + chatMangaID
 	}
 
-	wsURL := fmt.Sprintf("ws://localhost:%s/ws/chat?token=%s",
-		getEnvOrDefault("WEBSOCKET_PORT", "9093"),
+	wsPort := getEnvOrDefault("WEBSOCKET_PORT", "9093")
+	wsHost := "localhost"
+	if detectedIP := detectServerIP(wsPort); detectedIP != "" {
+		wsHost = detectedIP
+	}
+	wsURL := fmt.Sprintf("ws://%s:%s/ws/chat?token=%s",
+		wsHost,
+		wsPort,
 		url.QueryEscape(cfg.User.Token))
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -239,8 +257,14 @@ func runChatHistory(cmd *cobra.Command, args []string) {
 		room = "manga-" + chatMangaID
 	}
 
-	wsURL := fmt.Sprintf("ws://localhost:%s/ws/chat?token=%s",
-		getEnvOrDefault("WEBSOCKET_PORT", "9093"),
+	wsPort := getEnvOrDefault("WEBSOCKET_PORT", "9093")
+	wsHost := "localhost"
+	if detectedIP := detectServerIP(wsPort); detectedIP != "" {
+		wsHost = detectedIP
+	}
+	wsURL := fmt.Sprintf("ws://%s:%s/ws/chat?token=%s",
+		wsHost,
+		wsPort,
 		url.QueryEscape(cfg.User.Token))
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -410,8 +434,44 @@ func handleIncomingMessage(msg map[string]interface{}, username, currentRoom str
 
 	case "system":
 		fmt.Printf("\n%s\n", content)
+
+		// Check if this is a rooms list response
+		if metadata, ok := msg["metadata"].(map[string]interface{}); ok {
+			if rooms, ok := metadata["rooms"].([]interface{}); ok {
+				roomCount, _ := metadata["count"].(float64)
+				fmt.Printf("\nTotal Rooms: %d\n", int(roomCount))
+				fmt.Println("─────────────────────────────────────────────────────")
+				for _, r := range rooms {
+					if roomMap, ok := r.(map[string]interface{}); ok {
+						name, _ := roomMap["name"].(string)
+						roomType, _ := roomMap["type"].(string)
+						memberCount, _ := roomMap["member_count"].(float64)
+						createdAt, _ := roomMap["created_at"].(string)
+
+						fmt.Printf("📁 %s\n", name)
+						fmt.Printf("   Type: %s | Members: %d | Created: %s\n",
+							roomType, int(memberCount), createdAt)
+
+						if lastMsg, ok := roomMap["last_message_at"].(string); ok {
+							fmt.Printf("   Last activity: %s\n", lastMsg)
+						}
+						fmt.Println()
+					}
+				}
+				fmt.Println("─────────────────────────────────────────────────────")
+				fmt.Println("Use: mangahub chat join -r \"<room-name>\" to join a room")
+			} else if roomID, ok := metadata["room_id"].(string); ok {
+				// Room creation confirmation
+				roomName, _ := metadata["room_name"].(string)
+				role, _ := metadata["role"].(string)
+				fmt.Printf("✓ Room ID: %s\n", roomID)
+				fmt.Printf("✓ Your role: %s\n", role)
+				fmt.Printf("✓ Join with: mangahub chat join -r \"%s\"\n", roomName)
+			}
+		}
+
 		// Reprint prompt after system message
-		fmt.Printf("%s> ", username)
+		fmt.Printf("\n%s> ", username)
 
 	default:
 		fmt.Printf("\n[%s/%s] %s: %s\n", room, msgType, from, content)
@@ -432,6 +492,8 @@ func handleChatCommand(conn *websocket.Conn, input, username, currentRoom string
 	case "/help":
 		fmt.Println("\nChat Commands:")
 		fmt.Println("  /help             - Show this help")
+		fmt.Println("  /rooms            - List all available rooms")
+		fmt.Println("  /create <name>    - Create a new custom room")
 		fmt.Println("  /users            - List online users")
 		fmt.Println("  /quit             - Leave chat")
 		fmt.Println("  /pm <user> <msg>  - Private message")
@@ -443,6 +505,19 @@ func handleChatCommand(conn *websocket.Conn, input, username, currentRoom string
 
 	case "/quit", "/exit":
 		return true
+
+	case "/rooms":
+		sendCommand(conn, "rooms", currentRoom)
+		return false
+
+	case "/create":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /create <room-name>")
+			return false
+		}
+		roomName := strings.Join(parts[1:], " ")
+		sendCommand(conn, "create "+roomName, currentRoom)
+		return false
 
 	case "/users":
 		sendCommand(conn, "users", currentRoom)
@@ -532,4 +607,34 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+func detectServerIP(port string) string {
+	// Import utils package if not already imported
+	// Try common local IPs first (localhost, 127.0.0.1)
+	candidates := []string{"localhost", "127.0.0.1"}
+
+	// Add detected local IP using existing utility
+	if detectedIP := utils.GetLocalIP(); detectedIP != "" && detectedIP != "127.0.0.1" {
+		candidates = append(candidates, detectedIP)
+	}
+
+	// Try to reach health endpoint and get local_ip from response
+	for _, host := range candidates {
+		resp, err := http.Get(fmt.Sprintf("http://%s:%s/health", host, port))
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		var healthData map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&healthData); err != nil {
+			continue
+		}
+
+		if localIP, ok := healthData["local_ip"].(string); ok && localIP != "" {
+			return localIP
+		}
+	}
+
+	return ""
 }

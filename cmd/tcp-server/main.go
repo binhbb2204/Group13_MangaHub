@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -9,6 +10,7 @@ import (
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/tcp"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/joho/godotenv"
 )
 
@@ -41,6 +43,9 @@ func main() {
 		port = "9090"
 	}
 
+	localIP := utils.GetLocalIP()
+	log.Info("local_ip_detected", "ip", localIP)
+
 	tcpBridge := bridge.NewBridge(logger.WithContext("component", "bridge"))
 	tcpBridge.Start()
 	defer tcpBridge.Stop()
@@ -54,7 +59,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	log.Info("tcp_server_ready", "port", port)
+	log.Info("tcp_server_ready", "bind", fmt.Sprintf("0.0.0.0:%s", port), "local_ip", localIP, "address", fmt.Sprintf("%s:%s", localIP, port))
 	<-sigChan
 
 	log.Info("shutdown_signal_received")

@@ -706,7 +706,8 @@ func monitorEvents(conn net.Conn, eventCh chan bool) {
 // Helper functions for testing
 
 func connectAndAuthenticateClient(t *testing.T, port, userID, username string) net.Conn {
-	conn, err := net.Dial("tcp", "localhost:"+port)
+	// Use 127.0.0.1 instead of localhost for better test reliability
+	conn, err := net.Dial("tcp", "127.0.0.1:"+port)
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}

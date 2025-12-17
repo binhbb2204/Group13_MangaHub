@@ -21,6 +21,7 @@ import (
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/metrics"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	grpc_server "google.golang.org/grpc"
@@ -49,6 +50,7 @@ type Config struct {
 	GRPCPort      string
 	JWTSecret     string
 	FrontendURL   string
+	LocalIP       string
 	EnableAPI     bool
 	EnableTCP     bool
 	EnableUDP     bool
@@ -102,7 +104,7 @@ func (o *ServerOrchestrator) initializeServers() error {
 
 		// Health routes
 		router.GET("/health", func(c *gin.Context) {
-			c.JSON(200, gin.H{"status": "ok"})
+			c.JSON(200, gin.H{"status": "ok", "local_ip": o.config.LocalIP})
 		})
 		router.GET("/healthz", healthHandler.Healthz)
 		router.GET("/readyz", healthHandler.Readyz)
@@ -208,8 +210,8 @@ func (o *ServerOrchestrator) Start() error {
 	// Start HTTP API Server
 	if o.config.EnableAPI && o.httpRouter != nil {
 		go func() {
-			o.logger.Info("starting_http_api_server", "port", o.config.APIPort)
-			if err := o.httpRouter.Run(":" + o.config.APIPort); err != nil {
+			o.logger.Info("starting_http_api_server", "bind", "0.0.0.0:"+o.config.APIPort, "local_ip", o.config.LocalIP)
+			if err := o.httpRouter.Run("0.0.0.0:" + o.config.APIPort); err != nil {
 				o.logger.Error("http_api_server_start_failed", "error", err.Error())
 				errChan <- fmt.Errorf("HTTP API server: %w", err)
 			}
@@ -218,7 +220,7 @@ func (o *ServerOrchestrator) Start() error {
 
 	if o.config.EnableTCP && o.tcpServer != nil {
 		go func() {
-			o.logger.Info("starting_tcp_server", "port", o.config.TCPPort)
+			o.logger.Info("starting_tcp_server", "port", o.config.TCPPort, "local_ip", o.config.LocalIP)
 			if err := o.tcpServer.Start(); err != nil {
 				o.logger.Error("tcp_server_start_failed", "error", err.Error())
 				errChan <- fmt.Errorf("TCP server: %w", err)
@@ -228,7 +230,7 @@ func (o *ServerOrchestrator) Start() error {
 
 	if o.config.EnableUDP && o.udpServer != nil {
 		go func() {
-			o.logger.Info("starting_udp_server", "port", o.config.UDPPort)
+			o.logger.Info("starting_udp_server", "port", o.config.UDPPort, "local_ip", o.config.LocalIP)
 			if err := o.udpServer.Start(); err != nil {
 				o.logger.Error("udp_server_start_failed", "error", err.Error())
 				errChan <- fmt.Errorf("UDP server: %w", err)
@@ -257,13 +259,13 @@ func (o *ServerOrchestrator) Start() error {
 
 	if o.config.EnableWS && o.wsServer != nil {
 		go func() {
-			o.logger.Info("ws_server_ready", "port", o.config.WebSocketPort)
+			o.logger.Info("ws_server_ready", "port", o.config.WebSocketPort, "local_ip", o.config.LocalIP)
 		}()
 	}
 
 	if o.config.EnableGRPC && o.grpcServer != nil {
 		go func() {
-			o.logger.Info("grpc_server_ready", "port", o.config.GRPCPort)
+			o.logger.Info("grpc_server_ready", "port", o.config.GRPCPort, "local_ip", o.config.LocalIP)
 		}()
 	}
 
@@ -331,6 +333,10 @@ func main() {
 
 	log.Info("manga_hub_orchestrator_starting")
 
+	// Detect local IP early
+	localIP := utils.GetLocalIP()
+	log.Info("local_ip_detected", "ip", localIP)
+
 	dbPath := getEnv("DB_PATH", "./data/mangahub.db")
 	if err := database.InitDatabase(dbPath); err != nil {
 		log.Error("database_init_failed", "error", err.Error())
@@ -352,6 +358,7 @@ func main() {
 		GRPCPort:      getEnv("GRPC_PORT", "9092"),
 		JWTSecret:     jwtSecret,
 		FrontendURL:   getEnv("FRONTEND_URL", "http://localhost:3000"),
+		LocalIP:       localIP,
 		EnableAPI:     getEnvBool("ENABLE_API", true),
 		EnableTCP:     getEnvBool("ENABLE_TCP", true),
 		EnableUDP:     getEnvBool("ENABLE_UDP", true),

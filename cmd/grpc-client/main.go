@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
+	"net/http"
 	"time"
 
 	pb "github.com/binhbb2204/Manga-Hub-Group13/proto/manga"
@@ -10,8 +12,32 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// detectGRPCServer tries to find the gRPC server by querying the health endpoint
+func detectGRPCServer() string {
+	// Try localhost first
+	targets := []string{"127.0.0.1:8080", "localhost:8080"}
+
+	for _, target := range targets {
+		resp, err := http.Get("http://" + target + "/health")
+		if err == nil && resp.StatusCode == 200 {
+			defer resp.Body.Close()
+			var health map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&health); err == nil {
+				if localIP, ok := health["local_ip"].(string); ok {
+					log.Printf("Detected gRPC server at %s:9092", localIP)
+					return localIP + ":9092"
+				}
+			}
+		}
+	}
+
+	log.Println("Could not detect server, falling back to localhost:9092")
+	return "localhost:9092"
+}
+
 func main() {
-	conn, err := grpc.NewClient("localhost:9092", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	grpcTarget := detectGRPCServer()
+	conn, err := grpc.NewClient(grpcTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}

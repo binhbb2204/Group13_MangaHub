@@ -34,6 +34,8 @@ mangahub chat join
 | Command | Description | Example |
 |---------|-------------|---------|
 | `/help` | Show all available commands | `/help` |
+| `/rooms` | List all available chat rooms | `/rooms` |
+| `/create <name>` | Create a new custom room (you become owner) | `/create berserk-fans` |
 | `/users` | List all online users | `/users` |
 | `/quit` | Leave chat (or use `/exit`) | `/quit` |
 | `/pm <user> <msg>` | Send private message | `/pm alice Hello!` |
@@ -169,6 +171,71 @@ Chat History (last 10 messages):
 ─────────────────────────────────────────────────────────────
 ```
 
+### Scenario 5: Browse and Create Rooms
+
+**In chat:**
+```
+alice> /rooms
+```
+
+**Output:**
+```
+Available rooms
+
+Total Rooms: 3
+─────────────────────────────────────────────────────────────
+📁 global
+   Type: global | Members: 5 | Created: 2025-12-17 10:00:00
+   Last activity: 2025-12-17 14:30:00
+rooms",
+  "room": "global"
+}
+
+{
+  "type": "command",
+  "command": "/create my-custom-room",
+  "room": "global"
+}
+
+{
+  "type": "command",
+  "command": "/users",
+  "room": "global"
+}
+
+{
+  "type": "command",
+  "command": "/history 50",
+  "room": "custom-room-name
+   Type: custom | Members: 3 | Created: 2025-12-17 12:00:00
+   Last activity: 2025-12-17 14:00:00
+
+📁 manga-1
+   Type: manga | Members: 12 | Created: 2025-12-17 09:00:00
+   Last activity: 2025-12-17 14:35:00
+
+─────────────────────────────────────────────────────────────
+Use: mangahub chat join -r "<room-name>" to join a room
+```
+
+**Create a new room:**
+```
+alice> /create one-piece-discussion
+```
+
+**Output:**
+```
+Room 'one-piece-discussion' created successfully! You are the owner.
+✓ Room ID: conv_abc123
+✓ Your role: owner
+✓ Join with: mangahub chat join -r "one-piece-discussion"
+```
+
+**Join the new room:**
+```powershell
+mangahub chat join -r "one-piece-discussion"
+```
+
 ---
 
 ## Frontend Integration Ready
@@ -218,6 +285,58 @@ The WebSocket implementation is ready for frontend integration with these messag
   "type": "text",
   "from": "username",
   "content": "message content",
+
+{
+  "id": "msg_id",
+  "type": "system",
+  "from": "system",
+  "content": "Available rooms",
+  "room": "global",
+  "timestamp": "2025-12-16T17:00:00Z",
+  "metadata": {
+    "rooms": [
+      {
+        "id": "conv_123",
+        "name": "berserk-fans",
+        "type": "custom",
+        "member_count": 5,
+        "created_at": "2025-12-17 10:00:00",
+        "last_message_at": "2025-12-17 14:30:00"
+      },
+      {
+        "id": "conv_456",
+        "name": "manga-1",
+        "type": "manga",
+        "member_count": 12,
+        "created_at": "2025-12-17 09:00:00"
+      }
+    ],
+    "count": 2
+  }
+}
+
+{
+  "id": "msg_id",
+  "type": "system",
+  "from": "system",
+  "content": "Room 'one-piece-fans' created successfully! You are the owner.",
+  "room": "one-piece-fans",
+  "timestamp": "2025-12-16T17:00:00Z",
+  "metadata": {
+    "room_id": "conv_789",
+    "room_name": "one-piece-fans",
+    "role": "owner"
+  }
+}
+
+{
+  "id": "msg_id",
+  "type": "error",
+  "from": "system",
+  "content": "Failed to create room: room 'berserk-fans' already exists",
+  "room": "global",
+  "timestamp": "2025-12-16T17:00:00Z"
+}
   "room": "global",
   "timestamp": "2025-12-16T17:00:00Z"
 }
@@ -262,19 +381,99 @@ The WebSocket implementation is ready for frontend integration with these messag
 ---
 
 ## Troubleshooting
+**Room List Sidebar:** Display all available rooms from `/rooms` command
+   - **Chat message list:** Show messages filtered by current room
+   - **User list sidebar:** Online users in current room
+   - **Message input:** Send to current active room
+   - **Create Room Button:** Modal to create new custom rooms
+   - **Room info panel:** Show room type, member count, and owner
 
-### "Not authenticated" error
-```powershell
-mangahub auth login
+4. **Room Management Flow:**
+   ```javascript
+   // On connect - get rooms list
+   ws.onopen = () => {
+     ws.send(JSON.stringify({ type: "command", command: "/rooms" }));
+   };
+   
+   // User clicks room - join it
+   function joinRoom(roomName) {
+     currentRoom = roomName;
+     ws.send(JSON.stringify({ 
+### Conversations (Chat Rooms)
+```sql
+CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    type TEXT NOT NULL,  -- 'global', 'manga', 'custom'
+    manga_id TEXT,       -- NULL for non-manga rooms
+    created_by TEXT,
+    created_at DATETIME NOT NULL,
+    last_message_at DATETIME,
+    FOREIGN KEY (manga_id) REFERENCES manga(id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
 ```
 
-### Connection refused
-Make sure WebSocket server is running:
-```powershell
-go run cmd/websocket-server/main.go
+### Messages (Room Messages)
+```sql
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    sender_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+    FOREIGN KEY (sender_id) REFERENCES users(id)
+);
 ```
 
-### No recent messages showing
+### User Conversation History
+```sql
+CREATE TABLE IF NOT EXISTS user_conversation_history (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    role TEXT,  -- 'owner' for room creators, NULL for regular members
+    joined_at DATETIME NOT NULL,
+    unread_count INTEGER DEFAULT 0,
+    PRIMARY KEY (user_id, conversation_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
+```
+
+### Direct Messages (Legacy)
+       command: "/history 50",
+       room: roomName 
+     }));
+   }
+   
+   // User creates new room
+   function createRoom(roomName) {
+     ws.send(JSON.stringify({ 
+       type: "command", 
+       command: `/create ${roomName}` 
+     }));
+   }
+   
+   // Send message to current room
+   function sendMessage(text) {
+     ws.send(JSON.stringify({ 
+       type: "text", 
+       content: text,
+       room: currentRoom 
+     }));
+   }
+   ```
+
+5. **Additional features to add:**
+   - Typing indicators
+   - Read receipts
+   - Emoji support
+   - File sharing
+   - Voice messages
+   - Video chat
+   - Room search/filter
+   - Room ownership managemenmessages showing
 The chat history is stored in the database. Send some messages first!
 
 ### Messages not appearing

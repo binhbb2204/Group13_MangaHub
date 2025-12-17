@@ -3,6 +3,7 @@ package websocket
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -230,6 +231,60 @@ func (h *Handler) handleCommand(client *Client, msg ClientMessage) error {
 	var responseMsg ServerMessage
 
 	switch cmd {
+	case "rooms":
+		// List all available conversations/rooms
+		rooms, _ := h.GetAllRooms()
+		responseMsg = ServerMessage{
+			ID:        id,
+			Type:      MessageTypeSystem,
+			From:      "system",
+			Room:      msg.Room,
+			Content:   "Available rooms",
+			Timestamp: time.Now(),
+			Metadata: map[string]interface{}{
+				"rooms": rooms,
+				"count": len(rooms),
+			},
+		}
+	case "create":
+		// Create a custom room: /create <room-name>
+		if len(args) == 0 {
+			responseMsg = ServerMessage{
+				ID:        id,
+				Type:      MessageTypeError,
+				From:      "system",
+				Room:      msg.Room,
+				Content:   "Usage: /create <room-name>",
+				Timestamp: time.Now(),
+			}
+		} else {
+			roomName := strings.Join(args, "-")
+			convID, err := h.createCustomRoom(roomName, client.ID)
+			if err != nil {
+				responseMsg = ServerMessage{
+					ID:        id,
+					Type:      MessageTypeError,
+					From:      "system",
+					Room:      msg.Room,
+					Content:   fmt.Sprintf("Failed to create room: %v", err),
+					Timestamp: time.Now(),
+				}
+			} else {
+				responseMsg = ServerMessage{
+					ID:        id,
+					Type:      MessageTypeSystem,
+					From:      "system",
+					Room:      roomName,
+					Content:   fmt.Sprintf("Room '%s' created successfully! You are the owner.", roomName),
+					Timestamp: time.Now(),
+					Metadata: map[string]interface{}{
+						"room_id":   convID,
+						"room_name": roomName,
+						"role":      "owner",
+					},
+				}
+			}
+		}
 	case "users":
 		users := h.manager.GetRoomUsers(msg.Room)
 		responseMsg = ServerMessage{
@@ -356,4 +411,99 @@ func (h *Handler) GetConversationHistory(conversationID string, limit int) ([]Me
 		messages[i], messages[j] = messages[j], messages[i]
 	}
 	return messages, nil
+}
+
+// GetAllRooms returns all available conversations/rooms
+func (h *Handler) GetAllRooms() ([]map[string]interface{}, error) {
+	query := `
+		SELECT 
+			c.id, 
+			c.name, 
+			c.type,
+			c.created_at,
+			COUNT(DISTINCT uch.user_id) as member_count,
+			MAX(m.created_at) as last_message_at
+		FROM conversations c
+		LEFT JOIN user_conversation_history uch ON c.id = uch.conversation_id
+		LEFT JOIN messages m ON c.id = m.conversation_id
+		GROUP BY c.id, c.name, c.type, c.created_at
+		ORDER BY last_message_at DESC
+	`
+
+	rows, err := h.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	rooms := []map[string]interface{}{}
+	for rows.Next() {
+		var id, name, roomType, createdAt string
+		var memberCount int
+		var lastMessageAt sql.NullString
+
+		if err := rows.Scan(&id, &name, &roomType, &createdAt, &memberCount, &lastMessageAt); err != nil {
+			continue
+		}
+
+		room := map[string]interface{}{
+			"id":           id,
+			"name":         name,
+			"type":         roomType,
+			"created_at":   createdAt,
+			"member_count": memberCount,
+		}
+
+		if lastMessageAt.Valid {
+			room["last_message_at"] = lastMessageAt.String
+		}
+
+		rooms = append(rooms, room)
+	}
+
+	return rooms, nil
+}
+
+// createCustomRoom creates a new custom room with the creator as owner
+func (h *Handler) createCustomRoom(roomName, creatorID string) (string, error) {
+	// Check if room already exists
+	var existingID string
+	err := h.db.QueryRow(`SELECT id FROM conversations WHERE name = ?`, roomName).Scan(&existingID)
+	if err == nil {
+		return "", fmt.Errorf("room '%s' already exists", roomName)
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
+
+	// Create new room
+	convID, _ := utils.GenerateID(16)
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	_, err = h.db.Exec(`
+		INSERT INTO conversations (id, name, type, created_by, created_at, last_message_at) 
+		VALUES (?, ?, 'custom', ?, ?, ?)
+	`, convID, roomName, creatorID, now, now)
+
+	if err != nil {
+		return "", err
+	}
+
+	// Set creator as owner
+	_, err = h.db.Exec(`
+		INSERT INTO user_conversation_history (user_id, conversation_id, role, joined_at, unread_count) 
+		VALUES (?, ?, 'owner', ?, 0)
+	`, creatorID, convID, now)
+
+	if err != nil {
+		return "", err
+	}
+
+	logger.Info("Custom room created", map[string]interface{}{
+		"id":      convID,
+		"name":    roomName,
+		"creator": creatorID,
+	})
+
+	return convID, nil
 }

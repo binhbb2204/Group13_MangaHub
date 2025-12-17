@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
@@ -137,7 +138,7 @@ func Init() error {
 	}
 
 	config := &Config{}
-	config.Server.Host = "localhost"
+	config.Server.Host = utils.GetLocalIP() // Auto-detect local IP for multi-device connectivity
 	// Read ports from .env file with fallback to defaults
 	config.Server.HTTPPort = loadEnvPort("API_PORT", 8080)
 	config.Server.TCPPort = loadEnvPort("TCP_PORT", 9090)

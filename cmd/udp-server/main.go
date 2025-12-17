@@ -8,6 +8,7 @@ import (
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/udp"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/joho/godotenv"
 )
 
@@ -29,6 +30,9 @@ func main() {
 		port = "9091"
 		log.Warn("using_default_port", "port", port)
 	}
+
+	localIP := utils.GetLocalIP()
+	log.Info("local_ip_detected", "ip", localIP)
 
 	udpBridge := bridge.NewBridge(logger.WithContext("component", "bridge"))
 	udpBridge.Start()

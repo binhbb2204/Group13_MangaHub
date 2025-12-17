@@ -13,6 +13,7 @@ const (
 	MessageTypeUserList MessageType = "userlist"
 	MessageTypeHistory  MessageType = "history"
 	MessageTypeWelcome  MessageType = "welcome"
+	MessageTypeError    MessageType = "error"
 )
 
 type Message struct {
