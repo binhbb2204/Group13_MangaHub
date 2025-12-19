@@ -168,6 +168,43 @@ mangahub library list
 mangahub progress update --manga-id 13 --chapter 1095
 ```
 
+### UDP Notifications
+
+Enable real-time notifications for chapter releases, library updates, and progress updates.
+
+Enable notifications and sound:
+```bash
+mangahub notify preferences --enable --sound-on
+```
+
+Subscribe to notifications (defaults to all events):
+```bash
+mangahub notify subscribe
+# or choose events explicitly
+mangahub notify subscribe --events chapter_release,library_update,progress_update
+```
+
+Unsubscribe:
+```bash
+mangahub notify unsubscribe
+```
+
+Toggle preferences later:
+```bash
+mangahub notify preferences --disable          # turn off notifications
+mangahub notify preferences --sound-off        # mute sound
+```
+
+Example chapter release output:
+```
+[15:15:32] chapter_release notification received
+  Manga ID: 2
+  Title: Naruto
+  Old Chapters: 700
+  New Chapters: 720
+  +20 new chapters!
+```
+
 ## Testing with Postman for Frontend
 
 Good news! The API is ready to go. Just remember the port you set in `.env` (default is 8080).
@@ -185,6 +222,8 @@ Good news! The API is ready to go. Just remember the port you set in `.env` (def
 - **Change password:** `POST http://localhost:8080/auth/change-password`
 - **Update email:** `POST http://localhost:8080/auth/update-email`
 - **Update username:** `POST http://localhost:8080/auth/update-username`
+- **Refresh one manga (update chapters):** `POST http://localhost:8080/manga/:id/refresh`
+- **Refresh all manga (admin-only):** `POST http://localhost:8080/manga/refresh-all`
 
 **Quick tip:** After login, you'll get a JWT token. Add it to your request headers as `Authorization: Bearer <your-token>` for protected endpoints.
 
@@ -253,6 +292,31 @@ Content-Type: application/json
 }
 ```
 Save the `token` from the response - you'll need it for protected endpoints!
+
+### Chapter Refresh Endpoints
+
+Refresh a single manga (requires user auth):
+```bash
+curl -X POST "http://localhost:8080/manga/1517/refresh" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+Refresh all manga (admin-only):
+```bash
+curl -X POST "http://localhost:8080/manga/refresh-all" \
+  -H "Authorization: Bearer ADMIN_JWT_TOKEN"
+```
+
+Both endpoints update chapter counts by mapping MAL -> MangaDex and, when an increase is detected, broadcast a UDP `chapter_release` notification with this payload:
+```json
+{
+  "manga_id": "<MAL_ID>",
+  "title": "<Title>",
+  "old_total_chapters": 700,
+  "new_total_chapters": 720,
+  "delta": 20
+}
+```
 
 **Change password (needs token):**
 ```
