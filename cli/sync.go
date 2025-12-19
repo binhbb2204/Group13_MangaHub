@@ -270,6 +270,7 @@ var syncStatusCmd = &cobra.Command{
 		if err != nil {
 			fmt.Printf("  ⚠ Unable to fetch live status: %s\n", err.Error())
 			fmt.Println("  Showing cached information:")
+			fmt.Println()
 			displayCachedStatus(connInfo, cfg)
 			return nil
 		}
@@ -429,6 +430,31 @@ func queryServerStatus(cfg *config.Config) (*statusResponse, error) {
 
 	if authResponse["type"] != "success" {
 		return nil, fmt.Errorf("authentication failed")
+	}
+
+	// Send connect message to establish session
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "status-query-client"
+	}
+	connectMsg := map[string]interface{}{
+		"type": "connect",
+		"payload": map[string]string{
+			"device_type": "cli",
+			"device_name": hostname,
+		},
+	}
+	connectJSON, _ := json.Marshal(connectMsg)
+	connectJSON = append(connectJSON, '\n')
+
+	if _, err := conn.Write(connectJSON); err != nil {
+		return nil, fmt.Errorf("failed to send connect: %w", err)
+	}
+
+	// Read connect response
+	response, err = reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("failed to read connect response: %w", err)
 	}
 
 	statusMsg := map[string]interface{}{

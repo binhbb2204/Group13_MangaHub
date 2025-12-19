@@ -5,20 +5,24 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/models"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
 	externalSource ExternalSource
+	// Optional: bridge for notifications (TCP/UDP via forward)
 }
 
 // Helper function to parse query parameters as integers
@@ -816,8 +820,8 @@ func (h *Handler) CreateManga(c *gin.Context) {
 		return
 	}
 
-	query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url, mangadex_id) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO manga (id, title, author, genres, status, total_chapters, description, cover_url) 
+	              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err = database.DB.Exec(
 		query,
 		manga.ID,
@@ -828,7 +832,6 @@ func (h *Handler) CreateManga(c *gin.Context) {
 		manga.TotalChapters,
 		manga.Description,
 		manga.CoverURL,
-		manga.MangaDexID,
 	)
 
 	if err != nil {
@@ -883,6 +886,196 @@ func (h *Handler) GetAllManga(c *gin.Context) {
 		"mangas": mangas,
 		"count":  len(mangas),
 	})
+}
+
+// RefreshManga updates a manga's total_chapters from external sources (MangaDex via MAL mapping)
+// and broadcasts a UDP chapter_release notification if chapters increased.
+func (h *Handler) RefreshManga(c *gin.Context) {
+	mangaID := c.Param("id") // MAL ID stored in DB
+	if mangaID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "manga id required"})
+		return
+	}
+
+	// Load current manga from DB
+	var title string
+	var oldTotal int
+	err := database.DB.QueryRow(`SELECT title, total_chapters FROM manga WHERE id = ?`, mangaID).Scan(&title, &oldTotal)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "manga not found"})
+		return
+	}
+
+	// Map MAL ID -> MangaDex ID and fetch aggregate chapter count
+	mangadexID := FetchMangaDexID(mangaID)
+	if mangadexID == "" {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to map to MangaDex ID"})
+		return
+	}
+	newTotal := FetchMangaDexChapterCount(mangadexID)
+	if newTotal <= 0 {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch chapter count"})
+		return
+	}
+
+	// Update DB if increased
+	delta := 0
+	if newTotal > oldTotal {
+		_, updErr := database.DB.Exec(`UPDATE manga SET total_chapters = ? WHERE id = ?`, newTotal, mangaID)
+		if updErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update database"})
+			return
+		}
+		delta = newTotal - oldTotal
+
+		// Forward a UDP chapter_release notification to UDP server (global broadcast)
+		// Build payload
+		data := map[string]interface{}{
+			"manga_id":  mangaID,
+			"title":     title,
+			"old_total": oldTotal,
+			"new_total": newTotal,
+			"delta":     delta,
+		}
+		// Resolve UDP addr and send
+		udpAddr := resolveUDPAddr()
+		_ = forwardChapterReleaseToUDP(udpAddr, data)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"manga_id": mangaID,
+		"title":    title,
+		"old":      oldTotal,
+		"new":      newTotal,
+		"delta":    delta,
+		"updated":  newTotal > oldTotal,
+	})
+}
+
+// forwardChapterReleaseToUDP sends a global UDP notification (no user_id) for chapter releases
+func forwardChapterReleaseToUDP(udpAddr string, data map[string]interface{}) error {
+	addr, err := net.ResolveUDPAddr("udp", udpAddr)
+	if err != nil {
+		return err
+	}
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	msg := map[string]interface{}{
+		"type":       "notification",
+		"event_type": "chapter_release",
+		"user_id":    "",
+		"data":       data,
+		"timestamp":  time.Now().Format(time.RFC3339),
+	}
+	bytes, _ := json.Marshal(msg)
+	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	_, err = conn.Write(bytes)
+	return err
+}
+
+// RefreshAllManga updates total_chapters for ALL manga in the database
+func (h *Handler) RefreshAllManga(c *gin.Context) {
+	// Get all manga from DB
+	rows, err := database.DB.Query(`SELECT id, title, total_chapters FROM manga`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query manga"})
+		return
+	}
+	defer rows.Close()
+
+	type MangaRow struct {
+		ID       string
+		Title    string
+		OldTotal int
+	}
+
+	var allManga []MangaRow
+	for rows.Next() {
+		var m MangaRow
+		if err := rows.Scan(&m.ID, &m.Title, &m.OldTotal); err != nil {
+			continue
+		}
+		allManga = append(allManga, m)
+	}
+
+	totalProcessed := 0
+	totalUpdated := 0
+	totalFailed := 0
+	var updates []map[string]interface{}
+
+	udpAddr := resolveUDPAddr()
+
+	for _, manga := range allManga {
+		totalProcessed++
+
+		// Map MAL ID -> MangaDex ID
+		mangadexID := FetchMangaDexID(manga.ID)
+		if mangadexID == "" {
+			totalFailed++
+			continue
+		}
+
+		// Fetch chapter count
+		newTotal := FetchMangaDexChapterCount(mangadexID)
+		if newTotal <= 0 {
+			totalFailed++
+			continue
+		}
+
+		// Update if increased
+		if newTotal > manga.OldTotal {
+			_, err := database.DB.Exec(`UPDATE manga SET total_chapters = ? WHERE id = ?`, newTotal, manga.ID)
+			if err != nil {
+				totalFailed++
+				continue
+			}
+
+			delta := newTotal - manga.OldTotal
+			totalUpdated++
+
+			// Broadcast UDP notification
+			data := map[string]interface{}{
+				"manga_id":  manga.ID,
+				"title":     manga.Title,
+				"old_total": manga.OldTotal,
+				"new_total": newTotal,
+				"delta":     delta,
+			}
+			forwardChapterReleaseToUDP(udpAddr, data)
+
+			updates = append(updates, map[string]interface{}{
+				"manga_id": manga.ID,
+				"title":    manga.Title,
+				"old":      manga.OldTotal,
+				"new":      newTotal,
+				"delta":    delta,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total_processed": totalProcessed,
+		"total_updated":   totalUpdated,
+		"total_failed":    totalFailed,
+		"updates":         updates,
+	})
+}
+
+// resolveUDPAddr determines UDP server address from env or local IP
+func resolveUDPAddr() string {
+	udpPort := os.Getenv("UDP_PORT")
+	if udpPort == "" {
+		udpPort = "9091"
+	}
+	udpHost := os.Getenv("UDP_HOST")
+	if udpHost == "" {
+		udpHost = utils.GetLocalIP()
+	}
+	return net.JoinHostPort(udpHost, udpPort)
 }
 
 func (h *Handler) fetchRanking(clientID, rankingType string, limit int) ([]RankingManga, error) {

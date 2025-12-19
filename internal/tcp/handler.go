@@ -625,13 +625,46 @@ func handleStatusRequest(client *Client, log *logger.Logger, sessionMgr *Session
 
 	deviceCount := sessionMgr.GetUserDeviceCount(client.UserID)
 
+	// Aggregate messages across all active sessions for this user
+	var totalSent int64 = 0
+	var totalReceived int64 = 0
 	var lastSyncInfo *LastSyncInfo
-	if !session.LastSyncTime.IsZero() && session.LastSyncManga != "" {
+	var latestSyncTime time.Time
+	userSessions := sessionMgr.GetSessionsByUser(client.UserID)
+	for _, s := range userSessions {
+		totalSent += s.MessagesSent
+		totalReceived += s.MessagesReceived
+		if !s.LastSyncTime.IsZero() && s.LastSyncManga != "" {
+			if lastSyncInfo == nil || s.LastSyncTime.After(latestSyncTime) {
+				latestSyncTime = s.LastSyncTime
+				lastSyncInfo = &LastSyncInfo{
+					MangaID:    s.LastSyncManga,
+					MangaTitle: s.LastSyncMangaTitle,
+					Chapter:    s.LastSyncChapter,
+					Timestamp:  s.LastSyncTime.Format(time.RFC3339),
+				}
+			}
+		}
+	}
+
+	// Fallback or override lastSyncInfo from database to reflect most recent user activity
+	// This ensures Last sync is meaningful even if the current session hasn't synced yet.
+	var dbMangaID string
+	var dbMangaTitle string
+	var dbChapter int
+	var dbUpdatedAt string
+	query := `SELECT up.manga_id, COALESCE(m.title, ''), up.current_chapter, up.updated_at
+			  FROM user_progress up
+			  LEFT JOIN manga m ON m.id = up.manga_id
+			  WHERE up.user_id = ?
+			  ORDER BY up.updated_at DESC
+			  LIMIT 1`
+	if err := database.DB.QueryRow(query, client.UserID).Scan(&dbMangaID, &dbMangaTitle, &dbChapter, &dbUpdatedAt); err == nil && dbMangaID != "" {
 		lastSyncInfo = &LastSyncInfo{
-			MangaID:    session.LastSyncManga,
-			MangaTitle: session.LastSyncMangaTitle,
-			Chapter:    session.LastSyncChapter,
-			Timestamp:  session.LastSyncTime.Format(time.RFC3339),
+			MangaID:    dbMangaID,
+			MangaTitle: dbMangaTitle,
+			Chapter:    dbChapter,
+			Timestamp:  dbUpdatedAt,
 		}
 	}
 
@@ -642,8 +675,8 @@ func handleStatusRequest(client *Client, log *logger.Logger, sessionMgr *Session
 		LastHeartbeat:    lastHeartbeatStr,
 		SessionID:        session.SessionID,
 		DevicesOnline:    deviceCount,
-		MessagesSent:     session.MessagesSent,
-		MessagesReceived: session.MessagesReceived,
+		MessagesSent:     totalSent,
+		MessagesReceived: totalReceived,
 		LastSync:         lastSyncInfo,
 		NetworkQuality:   quality,
 		RTT:              int64(rtt.Milliseconds()),

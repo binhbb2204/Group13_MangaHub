@@ -64,9 +64,8 @@ func createTables() error {
         status TEXT,
         total_chapters INTEGER DEFAULT 0,
         description TEXT,
-        cover_url TEXT,
-        media_type TEXT DEFAULT 'manga',
-        mangadex_id TEXT
+		cover_url TEXT,
+		media_type TEXT DEFAULT 'manga'
     );
 
     CREATE TABLE IF NOT EXISTS user_progress (
@@ -136,8 +135,8 @@ func createTables() error {
         PRIMARY KEY (user_id, conversation_id)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_manga_title ON manga(title);
-    CREATE INDEX IF NOT EXISTS idx_manga_author ON manga(author);
+	CREATE INDEX IF NOT EXISTS idx_manga_title ON manga(title);
+	CREATE INDEX IF NOT EXISTS idx_manga_author ON manga(author);
     CREATE INDEX IF NOT EXISTS idx_user_progress_user ON user_progress(user_id);
     CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type);
     CREATE INDEX IF NOT EXISTS idx_conversations_manga_id ON conversations(manga_id);
@@ -158,6 +157,11 @@ func createTables() error {
 
 	// Migration for existing DBs that don't have media_type column
 	if err := ensureMediaTypeColumn(); err != nil {
+		return err
+	}
+
+	// Migration for existing DBs that don't have user_rating in user_progress
+	if err := ensureUserProgressRatingColumn(); err != nil {
 		return err
 	}
 
@@ -196,6 +200,36 @@ func ensureMediaTypeColumn() error {
 			log.Printf("Warning: adding media_type column failed: %v", err)
 		} else {
 			log.Println("✓ Added media_type column to existing database")
+		}
+	}
+	return nil
+}
+
+func ensureUserProgressRatingColumn() error {
+	rows, err := DB.Query(`PRAGMA table_info(user_progress);`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	hasRating := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, "user_rating") {
+			hasRating = true
+			break
+		}
+	}
+	if !hasRating {
+		if _, err := DB.Exec(`ALTER TABLE user_progress ADD COLUMN user_rating REAL;`); err != nil {
+			log.Printf("Warning: adding user_rating column to user_progress failed: %v", err)
+		} else {
+			log.Println("✓ Added user_rating column to user_progress")
 		}
 	}
 	return nil

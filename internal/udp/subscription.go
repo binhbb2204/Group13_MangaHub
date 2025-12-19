@@ -231,3 +231,20 @@ func (sm *SubscriberManager) matchesEventType(sub *Subscriber, eventType string)
 	}
 	return false
 }
+
+// GetAllSubscribersForEvent returns all subscribers across all users
+// that are subscribed to the given event type (or "all").
+func (sm *SubscriberManager) GetAllSubscribersForEvent(eventType string) []*Subscriber {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	out := []*Subscriber{}
+	for _, subs := range sm.subscribers {
+		for _, sub := range subs {
+			if sm.matchesEventType(sub, eventType) {
+				out = append(out, sub)
+			}
+		}
+	}
+	return out
+}

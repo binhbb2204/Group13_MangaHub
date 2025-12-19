@@ -47,7 +47,7 @@ var notifySubscribeCmd = &cobra.Command{
 
 		types := eventTypes
 		if len(types) == 0 {
-			types = []string{"progress_update", "library_update"}
+			types = []string{"progress_update", "library_update", "chapter_release"}
 		}
 
 		serverAddr := net.JoinHostPort(cfg.Server.Host, fmt.Sprintf("%d", cfg.Server.UDPPort))
@@ -138,8 +138,29 @@ var notifySubscribeCmd = &cobra.Command{
 					if mangaID, ok := data["manga_id"].(string); ok {
 						fmt.Printf("  Manga ID: %s\n", mangaID)
 					}
+					if title, ok := data["title"].(string); ok {
+						fmt.Printf("  Title: %s\n", title)
+					}
 					if action, ok := data["action"].(string); ok {
 						fmt.Printf("  Action: %s\n", action)
+					}
+					if chapter, ok := data["chapter"].(float64); ok {
+						fmt.Printf("  Chapter: %.0f\n", chapter)
+					}
+					if status, ok := data["status"].(string); ok {
+						fmt.Printf("  Status: %s\n", status)
+					}
+					if rating, ok := data["rating"].(float64); ok {
+						fmt.Printf("  Rating: %.1f\n", rating)
+					}
+					if oldTotal, ok := data["old_total_chapters"].(float64); ok {
+						fmt.Printf("  Old Chapters: %.0f\n", oldTotal)
+					}
+					if newTotal, ok := data["new_total_chapters"].(float64); ok {
+						fmt.Printf("  New Chapters: %.0f\n", newTotal)
+					}
+					if delta, ok := data["delta"].(float64); ok {
+						fmt.Printf("  +%0.f new chapters!\n", delta)
 					}
 				}
 			}
@@ -207,15 +228,51 @@ var notifyUnsubscribeCmd = &cobra.Command{
 	},
 }
 
+var (
+	enableNotifications  *bool
+	disableNotifications *bool
+	enableSound          *bool
+	disableSound         *bool
+)
+
 var notifyPreferencesCmd = &cobra.Command{
 	Use:   "preferences",
-	Short: "View notification preferences",
-	Long:  `Display current notification settings and configuration.`,
+	Short: "View or update notification preferences",
+	Long:  `Display current notification settings and configuration. Use flags to update preferences.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			printError("Configuration not initialized")
 			return err
+		}
+
+		// Update preferences if flags are provided
+		modified := false
+
+		if enableNotifications != nil && *enableNotifications {
+			cfg.Notifications.Enabled = true
+			modified = true
+		}
+		if disableNotifications != nil && *disableNotifications {
+			cfg.Notifications.Enabled = false
+			modified = true
+		}
+		if enableSound != nil && *enableSound {
+			cfg.Notifications.Sound = true
+			modified = true
+		}
+		if disableSound != nil && *disableSound {
+			cfg.Notifications.Sound = false
+			modified = true
+		}
+
+		// Save config if modified
+		if modified {
+			if err := config.Save(cfg); err != nil {
+				printError("Failed to save configuration")
+				return err
+			}
+			printSuccess("Notification preferences updated")
 		}
 
 		fmt.Println("Notification Preferences:")
@@ -291,4 +348,10 @@ func init() {
 	notifyCmd.AddCommand(notifyTestCmd)
 
 	notifySubscribeCmd.Flags().StringSliceVar(&eventTypes, "events", []string{}, "event types to subscribe to (progress_update, library_update)")
+
+	// Preferences flags
+	enableNotifications = notifyPreferencesCmd.Flags().Bool("enable", false, "Enable notifications")
+	disableNotifications = notifyPreferencesCmd.Flags().Bool("disable", false, "Disable notifications")
+	enableSound = notifyPreferencesCmd.Flags().Bool("sound-on", false, "Enable notification sound")
+	disableSound = notifyPreferencesCmd.Flags().Bool("sound-off", false, "Disable notification sound")
 }

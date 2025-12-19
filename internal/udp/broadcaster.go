@@ -101,6 +101,33 @@ func (b *Broadcaster) BroadcastUnifiedEvent(userID string, event bridge.UnifiedE
 
 func (b *Broadcaster) BroadcastToAll(event bridge.BroadcastEvent) {
 	b.log.Info("broadcasting_to_all", "event_type", event.EventType)
+
+	// Gather all subscribers matching this event type across all users
+	subs := b.subMgr.GetAllSubscribersForEvent(event.EventType)
+	if len(subs) == 0 {
+		b.log.Debug("no_udp_global_subscribers", "event_type", event.EventType)
+		return
+	}
+
+	// Build message once
+	messageBytes := CreateNotificationMessage("", event.EventType, event.Data)
+
+	successCount := 0
+	failCount := 0
+	for _, sub := range subs {
+		if _, err := b.conn.WriteToUDP(messageBytes, sub.Addr); err != nil {
+			failCount++
+			b.log.Warn("broadcast_all_failed", "addr", sub.Addr.String(), "error", err.Error())
+		} else {
+			successCount++
+		}
+	}
+
+	b.log.Info("udp_broadcast_all_complete",
+		"event_type", event.EventType,
+		"success_count", successCount,
+		"fail_count", failCount,
+		"total_devices", len(subs))
 }
 
 func (b *Broadcaster) GetSubscriberCount(userID string) int {

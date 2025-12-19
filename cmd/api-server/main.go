@@ -158,6 +158,15 @@ func main() {
 		protected.Use(auth.AuthMiddleware(jwtSecret))
 		{
 			protected.POST("", mangaHandler.CreateManga)
+			protected.POST("/:id/refresh", mangaHandler.RefreshManga)
+		}
+
+		// Admin-only routes
+		admin := mangaGroup.Group("")
+		admin.Use(auth.AuthMiddleware(jwtSecret))
+		admin.Use(auth.AdminMiddleware())
+		{
+			admin.POST("/refresh-all", mangaHandler.RefreshAllManga)
 		}
 	}
 
@@ -175,6 +184,29 @@ func main() {
 		userGroup.GET("/progress/:manga_id", userHandler.GetProgress)         // Get progress for specific manga
 		userGroup.PUT("/progress", userHandler.UpdateProgress)                // Update reading progress
 		userGroup.DELETE("/library/:manga_id", userHandler.RemoveFromLibrary) // Remove from library
+	}
+
+	// Debug routes (protected)
+	debugGroup := router.Group("/debug")
+	debugGroup.Use(func(c *gin.Context) {
+		c.Set("authHandler", authHandler)
+		auth.AuthMiddleware(jwtSecret)(c)
+	})
+	{
+		// Manually trigger TCP forward when running servers separately
+		debugGroup.POST("/forward-test", userHandler.ForwardProgressTest)
+	}
+
+	// Sync routes (protected)
+	syncGroup := router.Group("/sync")
+	syncGroup.Use(func(c *gin.Context) {
+		c.Set("authHandler", authHandler)
+		auth.AuthMiddleware(jwtSecret)(c)
+	})
+	{
+		syncGroup.POST("/connect", userHandler.SyncConnect)       // Connect to sync server
+		syncGroup.GET("/status", userHandler.SyncGetStatus)       // Get sync status
+		syncGroup.POST("/disconnect", userHandler.SyncDisconnect) // Disconnect from sync server
 	}
 
 	//Get port from environment or use default

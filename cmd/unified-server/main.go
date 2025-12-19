@@ -172,7 +172,16 @@ func (o *ServerOrchestrator) initializeServers() error {
 
 	if o.config.EnableTCP {
 		o.logger.Info("initializing_tcp_server", "port", o.config.TCPPort)
-		o.tcpServer = tcp.NewServer(o.config.TCPPort, nil)
+
+		// Ensure a bridge exists so HTTP can signal TCP and vice-versa
+		// If API didn't initialize oldBridge, create and start it here.
+		if o.oldBridge == nil {
+			o.oldBridge = bridge.NewBridge(o.logger)
+			o.oldBridge.Start()
+		}
+
+		// Wire TCP server to the same bridge used by HTTP handlers
+		o.tcpServer = tcp.NewServer(o.config.TCPPort, o.oldBridge)
 	}
 
 	if o.config.EnableUDP {

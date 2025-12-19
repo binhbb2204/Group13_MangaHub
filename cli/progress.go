@@ -15,6 +15,8 @@ var (
 	progressMangaID string
 	chapter         int
 	volume          int
+	progressStatus  string
+	progressRating  float64
 )
 
 var progressCmd = &cobra.Command{
@@ -51,15 +53,23 @@ var progressUpdateCmd = &cobra.Command{
 		}
 
 		reqBody := map[string]interface{}{
-			"manga_id":        progressMangaID,
-			"current_chapter": chapter,
+			"manga_id": progressMangaID,
+		}
+		if chapter >= 0 {
+			reqBody["current_chapter"] = chapter
 		}
 		if volume > 0 {
 			reqBody["current_volume"] = volume
 		}
+		if progressStatus != "" {
+			reqBody["status"] = progressStatus
+		}
+		if progressRating > 0 {
+			reqBody["user_rating"] = progressRating
+		}
 		jsonData, _ := json.Marshal(reqBody)
 
-		req, _ := http.NewRequest("POST", serverURL+"/users/progress", bytes.NewBuffer(jsonData))
+		req, _ := http.NewRequest("PUT", serverURL+"/users/progress", bytes.NewBuffer(jsonData))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+cfg.User.Token)
 
@@ -86,6 +96,12 @@ var progressUpdateCmd = &cobra.Command{
 			fmt.Printf("Progress: Volume %d, Chapter %d\n", volume, chapter)
 		} else {
 			fmt.Printf("Progress: Chapter %d\n", chapter)
+		}
+		if progressStatus != "" {
+			fmt.Printf("Status: %s\n", progressStatus)
+		}
+		if progressRating > 0 {
+			fmt.Printf("Rating: %.1f\n", progressRating)
 		}
 		fmt.Println("\nView your library:")
 		fmt.Println("  mangahub library list")
@@ -167,6 +183,8 @@ func init() {
 	progressUpdateCmd.Flags().StringVar(&progressMangaID, "manga-id", "", "Manga ID")
 	progressUpdateCmd.Flags().IntVar(&chapter, "chapter", 0, "Current chapter number")
 	progressUpdateCmd.Flags().IntVar(&volume, "volume", 0, "Current volume number (optional)")
+	progressUpdateCmd.Flags().StringVar(&progressStatus, "status", "", "Reading status (optional)")
+	progressUpdateCmd.Flags().Float64Var(&progressRating, "rating", 0, "User rating (optional, 1-5)")
 	progressUpdateCmd.MarkFlagRequired("manga-id")
 	progressUpdateCmd.MarkFlagRequired("chapter")
 

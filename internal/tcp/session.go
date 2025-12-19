@@ -206,6 +206,23 @@ func (sm *SessionManager) GetAllSessions() []*ClientSession {
 	return sessions
 }
 
+// GetSessionsByUser returns all active sessions for the given user in a threadsafe manner
+func (sm *SessionManager) GetSessionsByUser(userID string) []*ClientSession {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	sessionIDs, ok := sm.userToSessions[userID]
+	if !ok || len(sessionIDs) == 0 {
+		return []*ClientSession{}
+	}
+	sessions := make([]*ClientSession, 0, len(sessionIDs))
+	for _, sid := range sessionIDs {
+		if s, exists := sm.sessions[sid]; exists {
+			sessions = append(sessions, s)
+		}
+	}
+	return sessions
+}
+
 func (sm *SessionManager) CleanupStale(timeout time.Duration) []string {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

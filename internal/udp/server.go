@@ -127,6 +127,8 @@ func (s *Server) processPacket(data []byte, addr *net.UDPAddr) {
 		s.handleSubscribe(addr, msg.Data)
 	case "heartbeat":
 		s.handleHeartbeat(addr)
+	case "notification":
+		s.handleNotificationForward(msg)
 	default:
 		s.log.Warn("unknown_message_type",
 			"type", msg.Type,
@@ -193,6 +195,7 @@ func (s *Server) handleSubscribe(addr *net.UDPAddr, payload json.RawMessage) {
 		"all":             true,
 		"progress_update": true,
 		"library_update":  true,
+		"chapter_release": true,
 	}
 
 	for _, eventType := range subPayload.EventTypes {
@@ -244,4 +247,40 @@ func (s *Server) sendError(addr *net.UDPAddr, code, message string) {
 			"addr", addr.String(),
 			"error", err.Error())
 	}
+}
+
+// handleNotificationForward accepts notification messages forwarded from API server
+// and broadcasts them to subscribed clients
+func (s *Server) handleNotificationForward(msg *Message) {
+	if msg.EventType == "" {
+		s.log.Warn("invalid_notification_forward", "event_type", msg.EventType)
+		return
+	}
+
+	if s.broadcaster == nil {
+		s.log.Warn("broadcaster_not_initialized")
+		return
+	}
+
+	// Create unified event from the forwarded notification
+	var eventData map[string]interface{}
+	if len(msg.Data) > 0 {
+		json.Unmarshal(msg.Data, &eventData)
+	}
+
+	unifiedEvent := bridge.UnifiedEvent{
+		Type: bridge.EventType(msg.EventType),
+		Data: eventData,
+	}
+
+	if msg.UserID == "" {
+		// Global broadcast
+		s.broadcaster.BroadcastToAll(bridge.BroadcastEvent{EventType: msg.EventType, Data: eventData})
+		s.log.Info("notification_broadcast_all", "event_type", msg.EventType)
+		return
+	}
+
+	// Broadcast to a specific user
+	s.broadcaster.BroadcastUnifiedEvent(msg.UserID, unifiedEvent)
+	s.log.Info("notification_forwarded_and_broadcast", "user_id", msg.UserID, "event_type", msg.EventType)
 }

@@ -46,6 +46,7 @@ const (
 	EventSessionExpired     EventType = "session_expired"
 	EventHealthCheck        EventType = "health_check"
 	EventMetricsUpdate      EventType = "metrics_update"
+	EventChapterRelease     EventType = "chapter_release"
 )
 
 type UnifiedEvent struct {

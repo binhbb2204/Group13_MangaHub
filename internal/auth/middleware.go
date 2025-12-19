@@ -31,11 +31,13 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 
 		// Validate token
 		// Check if token is blacklisted (logout)
-		if handler, ok := c.MustGet("authHandler").(*Handler); ok {
-			if _, blacklisted := handler.tokenBlacklist[token]; blacklisted {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Token has been logged out"})
-				c.Abort()
-				return
+		if handler, ok := c.Get("authHandler"); ok {
+			if h, valid := handler.(*Handler); valid {
+				if _, blacklisted := h.tokenBlacklist[token]; blacklisted {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Token has been logged out"})
+					c.Abort()
+					return
+				}
 			}
 		}
 		claims, err := utils.ValidateJWT(token, jwtSecret)
@@ -51,7 +53,21 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		// Add user info to context
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
+		c.Set("role", claims.Role)
 
+		c.Next()
+	}
+}
+
+// AdminMiddleware ensures only admin users can access the route
+func AdminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("role")
+		if !exists || role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }

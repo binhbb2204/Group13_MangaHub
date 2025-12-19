@@ -41,8 +41,6 @@ func FetchMangaDexID(malID string) string {
 	// Create POST request body with MAL IDs
 	payload := fmt.Sprintf(`{"type":"manga","ids":[%s]}`, malID)
 
-	log.Printf("[DEBUG] MangaDex Legacy Mapping API request for MAL ID: %s", malID)
-
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(payload))
 	if err != nil {
@@ -76,8 +74,6 @@ func FetchMangaDexID(malID string) string {
 		return ""
 	}
 
-	log.Printf("[DEBUG] MangaDex API raw response: %s", string(body))
-
 	// Parse JSON response - Legacy Mapping API returns an object with data array
 	// Format: {"result":"ok","response":"collection","data":[{"attributes":{"newId":"mangadex_uuid"}}]}
 	var response struct {
@@ -103,12 +99,10 @@ func FetchMangaDexID(malID string) string {
 	// Extract MangaDex ID from response
 	if response.Result == "ok" && len(response.Data) > 0 {
 		mangadexID := response.Data[0].Attributes.NewID
-		log.Printf("[INFO] ✅ Mapped MAL ID %s to MangaDex ID %s", malID, mangadexID)
 		return mangadexID
 	}
 
 	// No mapping found
-	log.Printf("[INFO] No MangaDex mapping found for MAL ID %s", malID)
 	return ""
 }
 

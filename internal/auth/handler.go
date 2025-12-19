@@ -123,7 +123,11 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	token, err := utils.GenerateJWT(userID, req.Username, h.JWTSecret)
+	var createdAt time.Time
+	var role string
+	_ = database.DB.QueryRow(`SELECT created_at, role FROM users WHERE id = ?`, userID).Scan(&createdAt, &role)
+
+	token, err := utils.GenerateJWT(userID, req.Username, role, h.JWTSecret)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Server error",
@@ -131,9 +135,6 @@ func (h *Handler) Register(c *gin.Context) {
 		})
 		return
 	}
-
-	var createdAt time.Time
-	_ = database.DB.QueryRow(`SELECT created_at FROM users WHERE id = ?`, userID).Scan(&createdAt)
 
 	c.JSON(http.StatusCreated, models.AuthResponse{
 		Token:     token,
@@ -175,11 +176,11 @@ func (h *Handler) Login(c *gin.Context) {
 	var user models.User
 	var err error
 	if req.Username != "" {
-		err = database.DB.QueryRow(`SELECT id, username, email, password_hash, created_at FROM users WHERE username = ?`, req.Username).
-			Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt)
+		err = database.DB.QueryRow(`SELECT id, username, email, password_hash, role, created_at FROM users WHERE username = ?`, req.Username).
+			Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Role, &user.CreatedAt)
 	} else {
-		err = database.DB.QueryRow(`SELECT id, username, email, password_hash, created_at FROM users WHERE email = ?`, req.Email).
-			Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt)
+		err = database.DB.QueryRow(`SELECT id, username, email, password_hash, role, created_at FROM users WHERE email = ?`, req.Email).
+			Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Role, &user.CreatedAt)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -206,7 +207,7 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	//Generate JWT token
-	token, err := utils.GenerateJWT(user.ID, user.Username, h.JWTSecret)
+	token, err := utils.GenerateJWT(user.ID, user.Username, user.Role, h.JWTSecret)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
