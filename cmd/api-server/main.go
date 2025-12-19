@@ -107,8 +107,8 @@ func main() {
 	}
 
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
-	config.ExposeHeaders = []string{"Content-Length"}
+	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Cache-Control"}
+	config.ExposeHeaders = []string{"Content-Length", "Content-Type"}
 	config.AllowCredentials = true
 	router.Use(cors.New(config))
 
@@ -118,6 +118,9 @@ func main() {
 	router.GET("/healthz", healthHandler.Healthz)
 	router.GET("/readyz", healthHandler.Readyz)
 	router.GET("/metrics", metricsHandler.Metrics)
+
+	// SSE notifications endpoint
+	router.GET("/events", mangaHandler.GetBroker().ServeSSE)
 
 	authGroup := router.Group("/auth")
 	{

@@ -22,7 +22,7 @@ import (
 
 type Handler struct {
 	externalSource ExternalSource
-	// Optional: bridge for notifications (TCP/UDP via forward)
+	broker         *NotificationBroker
 }
 
 // Helper function to parse query parameters as integers
@@ -141,12 +141,21 @@ type RankingList struct {
 
 func NewHandler() *Handler {
 	source, err := NewExternalSourceFromEnv()
+	broker := NewBroker()
 	if err != nil {
-		return &Handler{}
+		return &Handler{
+			broker: broker,
+		}
 	}
 	return &Handler{
 		externalSource: source,
+		broker:         broker,
 	}
+}
+
+// GetBroker returns the notification broker
+func (h *Handler) GetBroker() *NotificationBroker {
+	return h.broker
 }
 
 // SearchManga searches for manga based on filters
@@ -843,6 +852,16 @@ func (h *Handler) CreateManga(c *gin.Context) {
 		return
 	}
 
+	// Broadcast SSE notification
+	if h.broker != nil {
+		h.broker.Broadcast("manga_created", fmt.Sprintf("New manga added: %s", manga.Title), gin.H{
+			"id":     manga.ID,
+			"title":  manga.Title,
+			"author": manga.Author,
+			"cover":  manga.CoverURL,
+		})
+	}
+
 	c.JSON(http.StatusCreated, manga)
 }
 
@@ -927,6 +946,17 @@ func (h *Handler) RefreshManga(c *gin.Context) {
 			return
 		}
 		delta = newTotal - oldTotal
+
+		// Broadcast SSE notification about new chapters
+		if h.broker != nil {
+			h.broker.Broadcast("chapter_release", fmt.Sprintf("%d new chapter(s) for %s", delta, title), gin.H{
+				"manga_id":     mangaID,
+				"title":        title,
+				"old_total":    oldTotal,
+				"new_total":    newTotal,
+				"new_chapters": delta,
+			})
+		}
 
 		// Forward a UDP chapter_release notification to UDP server (global broadcast)
 		// Build payload

@@ -2,6 +2,7 @@ package udp
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"sync/atomic"
@@ -19,6 +20,7 @@ type Server struct {
 	broadcaster       *Broadcaster
 	log               *logger.Logger
 	bridge            *bridge.UnifiedBridge
+	sseBroker         *SSEBroker
 }
 
 func NewServer(port string) *Server {
@@ -28,6 +30,7 @@ func NewServer(port string) *Server {
 		subscriberManager: NewSubscriberManager(log),
 		log:               log,
 		bridge:            nil,
+		sseBroker:         NewSSEBroker(),
 	}
 }
 
@@ -277,10 +280,89 @@ func (s *Server) handleNotificationForward(msg *Message) {
 		// Global broadcast
 		s.broadcaster.BroadcastToAll(bridge.BroadcastEvent{EventType: msg.EventType, Data: eventData})
 		s.log.Info("notification_broadcast_all", "event_type", msg.EventType)
+
+		// Also broadcast to SSE clients (frontend)
+		s.broadcastToSSE(msg.EventType, eventData)
 		return
 	}
 
 	// Broadcast to a specific user
 	s.broadcaster.BroadcastUnifiedEvent(msg.UserID, unifiedEvent)
 	s.log.Info("notification_forwarded_and_broadcast", "user_id", msg.UserID, "event_type", msg.EventType)
+
+	// Also broadcast to SSE clients (frontend)
+	s.broadcastToSSE(msg.EventType, eventData)
+}
+
+// broadcastToSSE sends notification to frontend SSE clients
+func (s *Server) broadcastToSSE(eventType string, data map[string]interface{}) {
+	if s.sseBroker == nil {
+		return
+	}
+
+	var message string
+	switch eventType {
+	case "manga_created":
+		if title, ok := data["title"].(string); ok {
+			message = "New manga added: " + title
+		} else {
+			message = "New manga added"
+		}
+	case "chapter_release":
+		if title, ok := data["title"].(string); ok {
+			if delta, ok := data["delta"].(float64); ok {
+				message = fmt.Sprintf("%.0f new chapter(s) for %s", delta, title)
+			} else {
+				message = "New chapters for " + title
+			}
+		} else {
+			message = "New chapters available"
+		}
+	case "library_update":
+		mangaID := ""
+		if id, ok := data["manga_id"].(float64); ok {
+			mangaID = fmt.Sprintf("%.0f", id)
+		} else if id, ok := data["manga_id"].(string); ok {
+			mangaID = id
+		}
+
+		if action, ok := data["action"].(string); ok {
+			switch action {
+			case "add":
+				if mangaID != "" {
+					message = fmt.Sprintf("Added manga #%s to library", mangaID)
+				} else {
+					message = "Added to your library"
+				}
+			case "remove":
+				if mangaID != "" {
+					message = fmt.Sprintf("Removed manga #%s from library", mangaID)
+				} else {
+					message = "Removed from your library"
+				}
+			case "update":
+				message = "Library updated"
+			default:
+				message = "Library changed"
+			}
+		} else {
+			message = "Library updated"
+		}
+	case "progress_update":
+		if chapterNum, ok := data["chapter_number"].(float64); ok {
+			message = fmt.Sprintf("Progress updated: Chapter %.0f", chapterNum)
+		} else {
+			message = "Reading progress updated"
+		}
+	default:
+		message = "Notification"
+	}
+
+	s.sseBroker.Broadcast(eventType, message, data)
+	s.log.Info("notification_sent_to_sse", "event_type", eventType, "clients", s.sseBroker.GetClientCount())
+}
+
+// GetSSEBroker returns the SSE broker for HTTP endpoint
+func (s *Server) GetSSEBroker() *SSEBroker {
+	return s.sseBroker
 }
