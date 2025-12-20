@@ -281,8 +281,8 @@ func (s *Server) handleNotificationForward(msg *Message) {
 		s.broadcaster.BroadcastToAll(bridge.BroadcastEvent{EventType: msg.EventType, Data: eventData})
 		s.log.Info("notification_broadcast_all", "event_type", msg.EventType)
 
-		// Also broadcast to SSE clients (frontend)
-		s.broadcastToSSE(msg.EventType, eventData)
+		// Also broadcast to SSE clients (frontend) - pass empty userID for global
+		s.broadcastToSSE("", msg.EventType, eventData)
 		return
 	}
 
@@ -290,15 +290,20 @@ func (s *Server) handleNotificationForward(msg *Message) {
 	s.broadcaster.BroadcastUnifiedEvent(msg.UserID, unifiedEvent)
 	s.log.Info("notification_forwarded_and_broadcast", "user_id", msg.UserID, "event_type", msg.EventType)
 
-	// Also broadcast to SSE clients (frontend)
-	s.broadcastToSSE(msg.EventType, eventData)
+	// Also broadcast to SSE clients (user-specific)
+	s.broadcastToSSE(msg.UserID, msg.EventType, eventData)
 }
 
 // broadcastToSSE sends notification to frontend SSE clients
-func (s *Server) broadcastToSSE(eventType string, data map[string]interface{}) {
+// If userID is empty, broadcasts to all clients (global)
+// If userID is set, broadcasts only to that user (personal)
+func (s *Server) broadcastToSSE(userID, eventType string, data map[string]interface{}) {
 	if s.sseBroker == nil {
 		return
 	}
+
+	// Determine if this is a global or personal notification
+	isGlobal := userID == "" || eventType == "chapter_release" || eventType == "manga_created"
 
 	var message string
 	switch eventType {
@@ -358,8 +363,15 @@ func (s *Server) broadcastToSSE(eventType string, data map[string]interface{}) {
 		message = "Notification"
 	}
 
-	s.sseBroker.Broadcast(eventType, message, data)
-	s.log.Info("notification_sent_to_sse", "event_type", eventType, "clients", s.sseBroker.GetClientCount())
+	if isGlobal {
+		// Broadcast to all users
+		s.sseBroker.Broadcast(eventType, message, data)
+		s.log.Info("notification_sent_to_sse_global", "event_type", eventType, "clients", s.sseBroker.GetClientCount())
+	} else {
+		// Broadcast to specific user only
+		s.sseBroker.BroadcastToUser(userID, eventType, message, data)
+		s.log.Info("notification_sent_to_sse_user", "event_type", eventType, "user_id", userID)
+	}
 }
 
 // GetSSEBroker returns the SSE broker for HTTP endpoint

@@ -3,15 +3,23 @@ package udp
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/gin-gonic/gin"
 )
 
+// SSEClient represents a connected SSE client
+type SSEClient struct {
+	UserID  string
+	Channel chan string
+}
+
 // SSEBroker manages SSE connections for frontend notifications
 type SSEBroker struct {
-	clients map[chan string]bool
+	clients map[string]*SSEClient // key is connection ID
 	mu      sync.RWMutex
 }
 
@@ -26,7 +34,7 @@ type SSEEvent struct {
 // NewSSEBroker creates a new SSE broker
 func NewSSEBroker() *SSEBroker {
 	return &SSEBroker{
-		clients: make(map[chan string]bool),
+		clients: make(map[string]*SSEClient),
 	}
 }
 
@@ -38,12 +46,32 @@ func (b *SSEBroker) ServeSSE(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
+	// Try to get user ID from token (optional for anonymous users)
+	userID := ""
+	token := c.Query("token")
+	if token != "" {
+		jwtSecret := os.Getenv("JWT_SECRET")
+		if jwtSecret == "" {
+			jwtSecret = "your-secret-key-change-this-in-production"
+		}
+		claims, err := utils.ValidateJWT(token, jwtSecret)
+		if err == nil {
+			userID = claims.UserID
+		}
+	}
+
 	// Create a channel for this client
 	messageChan := make(chan string, 10)
+	connectionID := fmt.Sprintf("%s_%d", c.ClientIP(), time.Now().UnixNano())
+
+	client := &SSEClient{
+		UserID:  userID,
+		Channel: messageChan,
+	}
 
 	// Register the client
 	b.mu.Lock()
-	b.clients[messageChan] = true
+	b.clients[connectionID] = client
 	b.mu.Unlock()
 
 	// Send initial connection message
@@ -59,7 +87,7 @@ func (b *SSEBroker) ServeSSE(c *gin.Context) {
 	// Set up cleanup on disconnect
 	defer func() {
 		b.mu.Lock()
-		delete(b.clients, messageChan)
+		delete(b.clients, connectionID)
 		close(messageChan)
 		b.mu.Unlock()
 	}()
@@ -107,11 +135,43 @@ func (b *SSEBroker) Broadcast(eventType, message string, data interface{}) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	for clientChan := range b.clients {
+	for _, client := range b.clients {
 		select {
-		case clientChan <- string(eventJSON):
+		case client.Channel <- string(eventJSON):
 		default:
 			// Client channel full, skip
+		}
+	}
+}
+
+// BroadcastToUser sends a notification to a specific user only
+func (b *SSEBroker) BroadcastToUser(userID, eventType, message string, data interface{}) {
+	if userID == "" {
+		return
+	}
+
+	event := SSEEvent{
+		Type:      eventType,
+		Message:   message,
+		Data:      data,
+		Timestamp: time.Now().Unix(),
+	}
+
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, client := range b.clients {
+		if client.UserID == userID {
+			select {
+			case client.Channel <- string(eventJSON):
+			default:
+				// Client channel full, skip
+			}
 		}
 	}
 }
