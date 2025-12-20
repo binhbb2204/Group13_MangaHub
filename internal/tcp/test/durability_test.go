@@ -33,7 +33,7 @@ func TestDurabilityDatabasePersistence(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	authMsg := map[string]interface{}{
 		"type":    "auth",
@@ -100,7 +100,7 @@ func TestDurabilityDataConsistency(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	authMsg := map[string]interface{}{
 		"type":    "auth",
@@ -164,7 +164,7 @@ func TestDurabilityServerRestart(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	authMsg := map[string]interface{}{
 		"type":    "auth",
@@ -212,7 +212,7 @@ func TestDurabilityServerRestart(t *testing.T) {
 	}
 	defer conn2.Close()
 
-	token2, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token2, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 	authMsg2 := map[string]interface{}{
 		"type":    "auth",
 		"payload": map[string]string{"token": token2},
@@ -261,7 +261,7 @@ func TestDurabilityTransactionRollback(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	authMsg := map[string]interface{}{
 		"type":    "auth",

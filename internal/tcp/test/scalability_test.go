@@ -49,7 +49,7 @@ func TestScalabilityConcurrentConnections(t *testing.T) {
 			if jwtSecret == "" {
 				jwtSecret = "your-secret-key-change-this-in-production"
 			}
-			token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+			token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 			authMsg := map[string]interface{}{
 				"type":    "auth",
@@ -111,7 +111,7 @@ func TestScalabilityHighThroughput(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	authMsg := map[string]interface{}{
 		"type":    "auth",
@@ -184,7 +184,7 @@ func TestScalabilityConcurrentDatabaseWrites(t *testing.T) {
 			if jwtSecret == "" {
 				jwtSecret = "your-secret-key-change-this-in-production"
 			}
-			token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+			token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 			authMsg := map[string]interface{}{
 				"type":    "auth",
@@ -247,7 +247,7 @@ func BenchmarkMessageProcessing(b *testing.B) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	authMsg := map[string]interface{}{
 		"type":    "auth",

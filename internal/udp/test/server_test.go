@@ -61,7 +61,7 @@ func TestServerRegister(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, err := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, err := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 	if err != nil {
 		t.Fatalf("Failed to generate JWT: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestServerUnregister(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -209,7 +209,7 @@ func TestServerSubscribe(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -261,7 +261,7 @@ func TestServerHeartbeat(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)

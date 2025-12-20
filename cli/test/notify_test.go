@@ -31,7 +31,7 @@ func generateTestToken(t *testing.T) string {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, err := utils.GenerateJWT("test-user-123", "testuser", jwtSecret)
+	token, err := utils.GenerateJWT("test-user-123", "testuser", "user", jwtSecret)
 	if err != nil {
 		t.Fatalf("Failed to generate JWT: %v", err)
 	}

@@ -11,6 +11,7 @@ import (
 )
 
 func setupSubscriberManager(t *testing.T) *udp.SubscriberManager {
+	_ = t
 	logger.Init(logger.ERROR, false, nil)
 	log := logger.GetLogger()
 	return udp.NewSubscriberManager(log)

@@ -47,7 +47,7 @@ func TestServerRestart(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -86,7 +86,7 @@ func TestGracefulShutdown(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -129,7 +129,7 @@ func TestMalformedPacketRecovery(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -164,7 +164,7 @@ func TestMultipleRestartCycles(t *testing.T) {
 			if jwtSecret == "" {
 				jwtSecret = "your-secret-key-change-this-in-production"
 			}
-			token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+			token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 			registerMsg := udp.CreateRegisterMessage(token)
 			conn.Write(registerMsg)
 			conn.Close()
@@ -234,7 +234,7 @@ func TestLongRunningStability(t *testing.T) {
 				continue
 			}
 
-			token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+			token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 			registerMsg := udp.CreateRegisterMessage(token)
 			conn.Write(registerMsg)
 
