@@ -35,7 +35,7 @@ func TestEndToEndConnectivity(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	_, err = conn.Write(registerMsg)
@@ -84,7 +84,7 @@ func TestIPv4Connectivity(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -135,7 +135,7 @@ func TestLocalhostConnectivity(t *testing.T) {
 			if jwtSecret == "" {
 				jwtSecret = "your-secret-key-change-this-in-production"
 			}
-			token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+			token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 			registerMsg := udp.CreateRegisterMessage(token)
 			conn.Write(registerMsg)
@@ -180,7 +180,7 @@ func TestMultipleClientsConnectivity(t *testing.T) {
 			t.Fatalf("Client %d failed to connect: %v", i, err)
 		}
 
-		token, _ := utils.GenerateJWT("user"+string(rune(i)), "testuser", jwtSecret)
+		token, _ := utils.GenerateJWT("user"+string(rune(i)), "testuser", "user", jwtSecret)
 		registerMsg := udp.CreateRegisterMessage(token)
 		conn.Write(registerMsg)
 

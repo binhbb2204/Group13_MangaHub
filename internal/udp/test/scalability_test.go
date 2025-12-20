@@ -47,7 +47,7 @@ func TestConcurrentConnections(t *testing.T) {
 			}
 			defer conn.Close()
 
-			token, _ := utils.GenerateJWT("user"+string(rune(id)), "testuser", jwtSecret)
+			token, _ := utils.GenerateJWT("user"+string(rune(id)), "testuser", "user", jwtSecret)
 			registerMsg := udp.CreateRegisterMessage(token)
 			conn.Write(registerMsg)
 
@@ -95,7 +95,7 @@ func TestHighFrequencyHeartbeats(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -154,7 +154,7 @@ func TestSessionLoad(t *testing.T) {
 			continue
 		}
 
-		token, _ := utils.GenerateJWT("user"+string(rune(i)), "testuser", jwtSecret)
+		token, _ := utils.GenerateJWT("user"+string(rune(i)), "testuser", "user", jwtSecret)
 		registerMsg := udp.CreateRegisterMessage(token)
 		conn.Write(registerMsg)
 
@@ -202,7 +202,7 @@ func TestConnectionChurn(t *testing.T) {
 			continue
 		}
 
-		token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+		token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 		registerMsg := udp.CreateRegisterMessage(token)
 		conn.Write(registerMsg)
 
@@ -256,7 +256,7 @@ func TestScalabilityMetrics(t *testing.T) {
 					}
 					defer conn.Close()
 
-					token, _ := utils.GenerateJWT("user"+string(rune(id)), "testuser", jwtSecret)
+					token, _ := utils.GenerateJWT("user"+string(rune(id)), "testuser", "user", jwtSecret)
 					registerMsg := udp.CreateRegisterMessage(token)
 					conn.Write(registerMsg)
 

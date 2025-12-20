@@ -29,7 +29,7 @@ func TestUDPEventReception(t *testing.T) {
 	defer conn.Close()
 
 	jwtSecret := "test-secret"
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)

@@ -50,7 +50,7 @@ func setupTestDB(t *testing.T) {
 }
 
 func createTestToken(t *testing.T) string {
-	token, err := utils.GenerateJWT("test-user-1", "testuser", "test-secret-key-32-characters!!")
+	token, err := utils.GenerateJWT("test-user-1", "testuser", "user", "test-secret-key-32-characters!!")
 	if err != nil {
 		t.Fatalf("Failed to create test token: %v", err)
 	}

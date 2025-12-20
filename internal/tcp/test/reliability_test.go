@@ -209,7 +209,7 @@ func TestReliabilityInvalidDatabaseOperations(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 
 	authMsg := map[string]interface{}{
 		"type":    "auth",
@@ -304,7 +304,7 @@ func TestReliabilityConcurrentUserUpdates(t *testing.T) {
 			}
 			defer conn.Close()
 
-			token, _ := utils.GenerateJWT("test-user-1", "testuser", jwtSecret)
+			token, _ := utils.GenerateJWT("test-user-1", "testuser", "user", jwtSecret)
 			authMsg := map[string]interface{}{
 				"type":    "auth",
 				"payload": map[string]string{"token": token},

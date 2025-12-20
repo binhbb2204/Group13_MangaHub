@@ -36,7 +36,7 @@ func TestMessageDelivery(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	numMessages := 100
 	successCount := 0
@@ -86,7 +86,7 @@ func TestSessionPersistence(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -130,7 +130,7 @@ func TestReconnectionBehavior(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	for i := 0; i < 5; i++ {
 		conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
@@ -189,7 +189,7 @@ func TestNotificationBroadcast(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	registerMsg := udp.CreateRegisterMessage(token)
 	conn.Write(registerMsg)
@@ -266,7 +266,7 @@ func TestMultiDeviceNotification(t *testing.T) {
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, _ := utils.GenerateJWT("user1", "testuser", jwtSecret)
+	token, _ := utils.GenerateJWT("user1", "testuser", "user", jwtSecret)
 
 	for i := 0; i < numDevices; i++ {
 		conn, err := net.DialUDP("udp", nil, &net.UDPAddr{

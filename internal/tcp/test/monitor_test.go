@@ -716,7 +716,7 @@ func connectAndAuthenticateClient(t *testing.T, port, userID, username string) n
 	if jwtSecret == "" {
 		jwtSecret = "your-secret-key-change-this-in-production"
 	}
-	token, err := utils.GenerateJWT(userID, username, jwtSecret)
+	token, err := utils.GenerateJWT(userID, username, "user", jwtSecret)
 	if err != nil {
 		t.Fatalf("Failed to generate JWT: %v", err)
 	}
