@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.33.1
-// source: proto/manga/manga.proto
+// source: proto/manga.proto
 
 package manga
 
@@ -22,6 +22,7 @@ const (
 	MangaService_GetManga_FullMethodName       = "/manga.MangaService/GetManga"
 	MangaService_SearchManga_FullMethodName    = "/manga.MangaService/SearchManga"
 	MangaService_UpdateProgress_FullMethodName = "/manga.MangaService/UpdateProgress"
+	MangaService_AddManga_FullMethodName       = "/manga.MangaService/AddManga"
 )
 
 // MangaServiceClient is the client API for MangaService service.
@@ -31,6 +32,7 @@ type MangaServiceClient interface {
 	GetManga(ctx context.Context, in *GetMangaRequest, opts ...grpc.CallOption) (*MangaResponse, error)
 	SearchManga(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
 	UpdateProgress(ctx context.Context, in *ProgressRequest, opts ...grpc.CallOption) (*ProgressResponse, error)
+	AddManga(ctx context.Context, in *AddMangaRequest, opts ...grpc.CallOption) (*AddMangaResponse, error)
 }
 
 type mangaServiceClient struct {
@@ -71,6 +73,16 @@ func (c *mangaServiceClient) UpdateProgress(ctx context.Context, in *ProgressReq
 	return out, nil
 }
 
+func (c *mangaServiceClient) AddManga(ctx context.Context, in *AddMangaRequest, opts ...grpc.CallOption) (*AddMangaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddMangaResponse)
+	err := c.cc.Invoke(ctx, MangaService_AddManga_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MangaServiceServer is the server API for MangaService service.
 // All implementations must embed UnimplementedMangaServiceServer
 // for forward compatibility.
@@ -78,6 +90,7 @@ type MangaServiceServer interface {
 	GetManga(context.Context, *GetMangaRequest) (*MangaResponse, error)
 	SearchManga(context.Context, *SearchRequest) (*SearchResponse, error)
 	UpdateProgress(context.Context, *ProgressRequest) (*ProgressResponse, error)
+	AddManga(context.Context, *AddMangaRequest) (*AddMangaResponse, error)
 	mustEmbedUnimplementedMangaServiceServer()
 }
 
@@ -96,6 +109,9 @@ func (UnimplementedMangaServiceServer) SearchManga(context.Context, *SearchReque
 }
 func (UnimplementedMangaServiceServer) UpdateProgress(context.Context, *ProgressRequest) (*ProgressResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateProgress not implemented")
+}
+func (UnimplementedMangaServiceServer) AddManga(context.Context, *AddMangaRequest) (*AddMangaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddManga not implemented")
 }
 func (UnimplementedMangaServiceServer) mustEmbedUnimplementedMangaServiceServer() {}
 func (UnimplementedMangaServiceServer) testEmbeddedByValue()                      {}
@@ -172,6 +188,24 @@ func _MangaService_UpdateProgress_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MangaService_AddManga_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddMangaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).AddManga(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_AddManga_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).AddManga(ctx, req.(*AddMangaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MangaService_ServiceDesc is the grpc.ServiceDesc for MangaService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -191,7 +225,11 @@ var MangaService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "UpdateProgress",
 			Handler:    _MangaService_UpdateProgress_Handler,
 		},
+		{
+			MethodName: "AddManga",
+			Handler:    _MangaService_AddManga_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/manga/manga.proto",
+	Metadata: "proto/manga.proto",
 }

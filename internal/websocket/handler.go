@@ -65,6 +65,12 @@ func (h *Handler) handleTextMessage(client *Client, msg ClientMessage) error {
 		room = "global"
 	}
 
+	logger.Debug("Message received", map[string]interface{}{
+		"from":    client.Username,
+		"room":    room,
+		"content": msg.Content,
+	})
+
 	// Get or create conversation
 	convID, err := h.getOrCreateConversation(room, client.ID)
 	if err != nil {

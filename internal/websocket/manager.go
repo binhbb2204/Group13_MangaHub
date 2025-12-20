@@ -112,19 +112,17 @@ func (m *Manager) joinRoom(c *Client, room string) {
 		room = "global"
 	}
 	m.mu.Lock()
-	// When joining a non-global room, remove from global to avoid cross-room message leakage
-	if room != "global" {
-		if globalSet, ok := m.rooms["global"]; ok {
-			delete(globalSet, c)
-			if len(globalSet) == 0 {
-				delete(m.rooms, "global")
-			}
-		}
-	}
+	// Allow users to be in multiple rooms simultaneously
+	// This ensures all users in a room can see each other's messages
 	if _, ok := m.rooms[room]; !ok {
 		m.rooms[room] = make(map[*Client]struct{})
 	}
 	m.rooms[room][c] = struct{}{}
+	logger.Debug("Client joined room", map[string]interface{}{
+		"username":      c.Username,
+		"room":          room,
+		"total_in_room": len(m.rooms[room]),
+	})
 	m.mu.Unlock()
 }
 
@@ -135,13 +133,20 @@ func (m *Manager) broadcastRoom(room string, message []byte) {
 	m.mu.RLock()
 	set, ok := m.rooms[room]
 	if !ok {
+		logger.Warn("Room not found for broadcast", map[string]interface{}{"room": room})
 		m.mu.RUnlock()
 		return
 	}
+	logger.Debug("Broadcasting to room", map[string]interface{}{
+		"room":       room,
+		"recipients": len(set),
+	})
 	for c := range set {
 		select {
 		case c.Send <- message:
+			logger.Debug("Message sent", map[string]interface{}{"to": c.Username})
 		default:
+			logger.Warn("Send channel full", map[string]interface{}{"user": c.Username})
 			close(c.Send)
 			delete(m.clients, c.ID)
 			delete(set, c)

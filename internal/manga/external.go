@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,7 +35,24 @@ func NewMangaDexSource() *MangaDexSource {
 	return &MangaDexSource{
 		BaseURL:  "https://api.mangadex.org",
 		ClientID: strings.TrimSpace(os.Getenv("MANGADEX_CLIENT_ID")),
-		Client:   &http.Client{Timeout: 10 * time.Second},
+		Client: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					// Use custom DNS resolver (Google DNS) to bypass hosts file
+					dialer := &net.Dialer{
+						Resolver: &net.Resolver{
+							PreferGo: true,
+							Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+								d := net.Dialer{}
+								return d.DialContext(ctx, "udp", "8.8.8.8:53")
+							},
+						},
+					}
+					return dialer.DialContext(ctx, "tcp4", addr)
+				},
+			},
+		},
 	}
 }
 

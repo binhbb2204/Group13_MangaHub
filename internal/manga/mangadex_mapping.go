@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -51,8 +52,24 @@ func FetchMangaDexID(malID string) string {
 	// Set content type header
 	req.Header.Set("Content-Type", "application/json")
 
-	// Execute request
-	client := &http.Client{}
+	// Execute request with custom DNS resolver to bypass localhost DNS hijacking
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				// Use custom DNS resolver (Google DNS) to bypass hosts file
+				dialer := &net.Dialer{
+					Resolver: &net.Resolver{
+						PreferGo: true,
+						Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+							d := net.Dialer{}
+							return d.DialContext(ctx, "udp", "8.8.8.8:53")
+						},
+					},
+				}
+				return dialer.DialContext(ctx, "tcp4", addr)
+			},
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		// Timeout or network error - log but don't fail
@@ -120,7 +137,23 @@ func FetchMangaDexChapterCount(mangadexID string) int {
 		return 0
 	}
 
-	client := &http.Client{}
+	// Use custom DNS resolver to bypass localhost DNS hijacking
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dialer := &net.Dialer{
+					Resolver: &net.Resolver{
+						PreferGo: true,
+						Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+							d := net.Dialer{}
+							return d.DialContext(ctx, "udp", "8.8.8.8:53")
+						},
+					},
+				}
+				return dialer.DialContext(ctx, "tcp4", addr)
+			},
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("[WARN] MangaDex aggregate API error: %v", err)

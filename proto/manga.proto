@@ -8,6 +8,7 @@ service MangaService {
     rpc GetManga(GetMangaRequest) returns (MangaResponse);
     rpc SearchManga(SearchRequest) returns (SearchResponse);
     rpc UpdateProgress(ProgressRequest) returns (ProgressResponse);
+    rpc AddManga(AddMangaRequest) returns (AddMangaResponse);
 }
 
 message GetMangaRequest {
@@ -29,6 +30,8 @@ message SearchRequest {
     repeated string genres = 2;
     int32 limit = 3;
     int32 offset = 4;
+    string author = 5;
+    string status = 6;
 }
 
 message SearchResponse {
@@ -46,3 +49,27 @@ message ProgressResponse {
     bool success = 1;
     string message = 2;
 }
+
+message AddMangaRequest {
+    string title = 1;
+    string author = 2;
+    repeated string genres = 3;
+    string status = 4;
+    int32 total_chapters = 5;
+    string description = 6;
+    string cover_url = 7;
+    string media_type = 8;
+}
+
+message AddMangaResponse {
+    string id = 1;
+    string title = 2;
+    string author = 3;
+    repeated string genres = 4;
+    string status = 5;
+    int32 total_chapters = 6;
+    string description = 7;
+    string cover_url = 8;
+    string media_type = 9;
+}
+

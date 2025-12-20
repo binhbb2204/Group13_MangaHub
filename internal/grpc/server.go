@@ -3,10 +3,10 @@ package grpc
 import (
 	"context"
 	"database/sql"
-	"strings"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/models"
 	pb "github.com/binhbb2204/Manga-Hub-Group13/proto/manga"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,16 +15,35 @@ import (
 type Server struct {
 	pb.UnimplementedMangaServiceServer
 	DB          *sql.DB
+	repository  MangaRepository
 	broadcaster *GRPCBroadcaster
 	bridge      *bridge.UnifiedBridge
 }
 
 func NewServer(db *sql.DB) *Server {
 	broadcaster := NewGRPCBroadcaster(logger.GetLogger())
+
+	var repo MangaRepository
+	if db != nil {
+		repo = NewDBRepository(db)
+	} else {
+		repo = NewMemoryRepository()
+	}
+
 	return &Server{
 		DB:          db,
+		repository:  repo,
 		broadcaster: broadcaster,
-		bridge:      nil,
+	}
+}
+
+func NewServerWithRepository(repo MangaRepository, db *sql.DB) *Server {
+	broadcaster := NewGRPCBroadcaster(logger.GetLogger())
+
+	return &Server{
+		DB:          db,
+		repository:  repo,
+		broadcaster: broadcaster,
 	}
 }
 
@@ -33,73 +52,105 @@ func (s *Server) SetBridge(b *bridge.UnifiedBridge) {
 	s.broadcaster.SetBridge(b)
 }
 
+func (s *Server) AddManga(ctx context.Context, req *pb.AddMangaRequest) (*pb.AddMangaResponse, error) {
+	if req.Title == "" {
+		return nil, status.Error(codes.InvalidArgument, "manga title is required")
+	}
+
+	manga := &models.Manga{
+		Title:         req.Title,
+		Author:        req.Author,
+		Genres:        req.Genres,
+		Status:        req.Status,
+		TotalChapters: int(req.TotalChapters),
+		Description:   req.Description,
+		CoverURL:      req.CoverUrl,
+		MediaType:     req.MediaType,
+	}
+
+	created, err := s.repository.AddManga(ctx, manga)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to add manga: %v", err)
+	}
+
+	return &pb.AddMangaResponse{
+		Id:            created.ID,
+		Title:         created.Title,
+		Author:        created.Author,
+		Genres:        created.Genres,
+		Status:        created.Status,
+		TotalChapters: int32(created.TotalChapters),
+		Description:   created.Description,
+		CoverUrl:      created.CoverURL,
+		MediaType:     created.MediaType,
+	}, nil
+}
+
 func (s *Server) GetManga(ctx context.Context, req *pb.GetMangaRequest) (*pb.MangaResponse, error) {
 	if req.Id == "" {
 		return nil, status.Error(codes.InvalidArgument, "manga ID is required")
 	}
 
-	var manga pb.MangaResponse
-	var genres string
-
-	query := `SELECT id, title, author, genres, status, total_chapters, description FROM manga WHERE id = ?`
-	err := s.DB.QueryRowContext(ctx, query, req.Id).Scan(
-		&manga.Id, &manga.Title, &manga.Author, &genres, &manga.Status, &manga.TotalChapters, &manga.Description,
-	)
-
-	if err == sql.ErrNoRows {
+	manga, err := s.repository.GetMangaByID(ctx, req.Id)
+	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "manga not found: %s", req.Id)
 	}
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to query manga: %v", err)
-	}
 
-	manga.Genres = parseGenres(genres)
-	return &manga, nil
+	return &pb.MangaResponse{
+		Id:            manga.ID,
+		Title:         manga.Title,
+		Author:        manga.Author,
+		Genres:        manga.Genres,
+		Status:        manga.Status,
+		TotalChapters: int32(manga.TotalChapters),
+		Description:   manga.Description,
+	}, nil
 }
 
 func (s *Server) SearchManga(ctx context.Context, req *pb.SearchRequest) (*pb.SearchResponse, error) {
-	queryBuilder := strings.Builder{}
-	queryBuilder.WriteString("SELECT id, title, author, genres, status, total_chapters, description FROM manga WHERE 1=1")
-	var args []interface{}
-
-	if req.Query != "" {
-		queryBuilder.WriteString(" AND (title LIKE ? OR author LIKE ?)")
-		searchTerm := "%" + req.Query + "%"
-		args = append(args, searchTerm, searchTerm)
-	}
-
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10
 	}
+	if limit > 100 {
+		limit = 100
+	}
+
 	offset := req.Offset
 	if offset < 0 {
 		offset = 0
 	}
 
-	queryBuilder.WriteString(" LIMIT ? OFFSET ?")
-	args = append(args, limit, offset)
+	filter := &SearchFilter{
+		Query:  req.Query,
+		Author: req.Author,
+		Genres: req.Genres,
+		Status: req.Status,
+		Limit:  limit,
+		Offset: offset,
+	}
 
-	rows, err := s.DB.QueryContext(ctx, queryBuilder.String(), args...)
+	mangas, total, err := s.repository.SearchManga(ctx, filter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to search manga: %v", err)
 	}
-	defer rows.Close()
 
-	var mangas []*pb.MangaResponse
-	for rows.Next() {
-		var m pb.MangaResponse
-		var genres string
-		if err := rows.Scan(&m.Id, &m.Title, &m.Author, &genres, &m.Status, &m.TotalChapters, &m.Description); err != nil {
-			continue
-		}
-		m.Genres = parseGenres(genres)
-		mangas = append(mangas, &m)
+	res := make([]*pb.MangaResponse, 0, len(mangas))
+	for _, m := range mangas {
+		res = append(res, &pb.MangaResponse{
+			Id:            m.ID,
+			Title:         m.Title,
+			Author:        m.Author,
+			Genres:        m.Genres,
+			Status:        m.Status,
+			TotalChapters: int32(m.TotalChapters),
+			Description:   m.Description,
+		})
 	}
 
 	return &pb.SearchResponse{
-		Mangas:     mangas,
-		TotalCount: int32(len(mangas)),
+		Mangas:     res,
+		TotalCount: total,
 	}, nil
 }
 
@@ -108,14 +159,7 @@ func (s *Server) UpdateProgress(ctx context.Context, req *pb.ProgressRequest) (*
 		return nil, status.Error(codes.InvalidArgument, "user_id and manga_id are required")
 	}
 
-	query := `INSERT INTO user_progress (user_id, manga_id, current_chapter, updated_at) 
-              VALUES (?, ?, ?, CURRENT_TIMESTAMP) 
-              ON CONFLICT(user_id, manga_id) DO UPDATE SET 
-              current_chapter = excluded.current_chapter, 
-              updated_at = CURRENT_TIMESTAMP`
-
-	_, err := s.DB.ExecContext(ctx, query, req.UserId, req.MangaId, req.Chapter)
-	if err != nil {
+	if err := s.repository.UpdateMangaProgress(ctx, req.UserId, req.MangaId, req.Chapter); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to update progress: %v", err)
 	}
 
@@ -136,14 +180,4 @@ func (s *Server) UpdateProgress(ctx context.Context, req *pb.ProgressRequest) (*
 		Success: true,
 		Message: "Progress updated successfully",
 	}, nil
-}
-
-func parseGenres(genresStr string) []string {
-	cleaned := strings.ReplaceAll(genresStr, "[", "")
-	cleaned = strings.ReplaceAll(cleaned, "]", "")
-	cleaned = strings.ReplaceAll(cleaned, "\"", "")
-	if cleaned == "" {
-		return []string{}
-	}
-	return strings.Split(cleaned, ",")
 }
