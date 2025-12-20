@@ -36,7 +36,7 @@ func main() {
 
 	httpPort := os.Getenv("UDP_HTTP_PORT")
 	if httpPort == "" {
-		httpPort = "9092"
+		httpPort = "9094"
 		log.Warn("using_default_http_port", "port", httpPort)
 	}
 
