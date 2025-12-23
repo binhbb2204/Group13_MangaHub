@@ -3,19 +3,24 @@ package manga
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
 	"github.com/gin-gonic/gin"
 )
 
-// NotificationBroker manages SSE connections and broadcasts events
+type SSEClient struct {
+	UserID  string
+	Channel chan string
+}
+
 type NotificationBroker struct {
-	clients map[chan string]bool
+	clients map[string]*SSEClient
 	mu      sync.RWMutex
 }
 
-// NotificationEvent represents a notification event
 type NotificationEvent struct {
 	Type      string      `json:"type"`
 	Message   string      `json:"message"`
@@ -23,30 +28,43 @@ type NotificationEvent struct {
 	Timestamp int64       `json:"timestamp"`
 }
 
-// NewBroker creates a new notification broker
 func NewBroker() *NotificationBroker {
 	return &NotificationBroker{
-		clients: make(map[chan string]bool),
+		clients: make(map[string]*SSEClient),
 	}
 }
 
-// ServeSSE handles Server-Sent Events connections
 func (b *NotificationBroker) ServeSSE(c *gin.Context) {
-	// Set headers for SSE
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no") // Disable nginx buffering
+	c.Header("X-Accel-Buffering", "no")
 
-	// Create a channel for this client
+	userID := ""
+	token := c.Query("token")
+	if token != "" {
+		jwtSecret := os.Getenv("JWT_SECRET")
+		if jwtSecret == "" {
+			jwtSecret = "your-secret-key-change-this-in-production"
+		}
+		claims, err := utils.ValidateJWT(token, jwtSecret)
+		if err == nil {
+			userID = claims.UserID
+		}
+	}
+
 	messageChan := make(chan string, 10)
+	connectionID := fmt.Sprintf("%s_%d", c.ClientIP(), time.Now().UnixNano())
 
-	// Register the client
+	client := &SSEClient{
+		UserID:  userID,
+		Channel: messageChan,
+	}
+
 	b.mu.Lock()
-	b.clients[messageChan] = true
+	b.clients[connectionID] = client
 	b.mu.Unlock()
 
-	// Send initial connection message
 	initialEvent := NotificationEvent{
 		Type:      "connected",
 		Message:   "Connected to MangaHub notifications",
@@ -56,26 +74,22 @@ func (b *NotificationBroker) ServeSSE(c *gin.Context) {
 	fmt.Fprintf(c.Writer, "data: %s\n\n", initialJSON)
 	c.Writer.Flush()
 
-	// Set up cleanup on disconnect
 	defer func() {
 		b.mu.Lock()
-		delete(b.clients, messageChan)
+		delete(b.clients, connectionID)
 		close(messageChan)
 		b.mu.Unlock()
 	}()
 
-	// Keep connection alive with heartbeat
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	// Listen for messages and client disconnect
 	notify := c.Request.Context().Done()
 	for {
 		select {
 		case <-notify:
 			return
 		case <-ticker.C:
-			// Send heartbeat
 			heartbeat := NotificationEvent{
 				Type:      "heartbeat",
 				Timestamp: time.Now().Unix(),
@@ -90,7 +104,6 @@ func (b *NotificationBroker) ServeSSE(c *gin.Context) {
 	}
 }
 
-// Broadcast sends a notification to all connected clients
 func (b *NotificationBroker) Broadcast(eventType, message string, data interface{}) {
 	event := NotificationEvent{
 		Type:      eventType,
@@ -107,16 +120,44 @@ func (b *NotificationBroker) Broadcast(eventType, message string, data interface
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	for clientChan := range b.clients {
+	for _, client := range b.clients {
 		select {
-		case clientChan <- string(eventJSON):
+		case client.Channel <- string(eventJSON):
 		default:
-			// Client channel full, skip
 		}
 	}
 }
 
-// GetClientCount returns the number of connected clients
+func (b *NotificationBroker) BroadcastToUser(userID, eventType, message string, data interface{}) {
+	if userID == "" {
+		return
+	}
+
+	event := NotificationEvent{
+		Type:      eventType,
+		Message:   message,
+		Data:      data,
+		Timestamp: time.Now().Unix(),
+	}
+
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, client := range b.clients {
+		if client.UserID == userID {
+			select {
+			case client.Channel <- string(eventJSON):
+			default:
+			}
+		}
+	}
+}
+
 func (b *NotificationBroker) GetClientCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

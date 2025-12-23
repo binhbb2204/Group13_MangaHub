@@ -4,22 +4,23 @@ import (
 	"net/http"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/config"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
-	bridge *bridge.Bridge
+	bridge         *bridge.Bridge
+	servicesConfig *config.ServicesConfig
 }
 
 func NewHandler(br *bridge.Bridge) *Handler {
-	return &Handler{bridge: br}
+	return &Handler{bridge: br, servicesConfig: config.LoadServicesConfig()}
 }
 
 func (h *Handler) Healthz(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "alive"})
 }
-
 func (h *Handler) Readyz(c *gin.Context) {
 	if database.DB == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "reason": "database_not_initialized"})
@@ -37,4 +38,8 @@ func (h *Handler) Readyz(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ready"})
+}
+
+func (h *Handler) Discovery(c *gin.Context) {
+	c.JSON(http.StatusOK, h.servicesConfig.GetDiscoveryResponse())
 }

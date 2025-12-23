@@ -1,0 +1,14 @@
+.git
+coverage
+coverage-*
+bin
+*.db
+data
+*.log
+docs
+scripts
+**/*.md
+**/node_modules
+**/build
+**/.cache
+**/.env

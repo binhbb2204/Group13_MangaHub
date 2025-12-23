@@ -1,11 +1,14 @@
 package udp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
@@ -21,16 +24,24 @@ type Server struct {
 	log               *logger.Logger
 	bridge            *bridge.UnifiedBridge
 	sseBroker         *SSEBroker
+	httpClient        *http.Client
+	apiServerURL      string
 }
 
 func NewServer(port string) *Server {
 	log := logger.WithContext("component", "udp_server")
+	apiURL := os.Getenv("API_SERVER_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
 	return &Server{
 		Port:              port,
 		subscriberManager: NewSubscriberManager(log),
 		log:               log,
 		bridge:            nil,
 		sseBroker:         NewSSEBroker(),
+		httpClient:        &http.Client{Timeout: 2 * time.Second},
+		apiServerURL:      apiURL,
 	}
 }
 
@@ -252,8 +263,6 @@ func (s *Server) sendError(addr *net.UDPAddr, code, message string) {
 	}
 }
 
-// handleNotificationForward accepts notification messages forwarded from API server
-// and broadcasts them to subscribed clients
 func (s *Server) handleNotificationForward(msg *Message) {
 	if msg.EventType == "" {
 		s.log.Warn("invalid_notification_forward", "event_type", msg.EventType)
@@ -265,7 +274,6 @@ func (s *Server) handleNotificationForward(msg *Message) {
 		return
 	}
 
-	// Create unified event from the forwarded notification
 	var eventData map[string]interface{}
 	if len(msg.Data) > 0 {
 		json.Unmarshal(msg.Data, &eventData)
@@ -277,21 +285,108 @@ func (s *Server) handleNotificationForward(msg *Message) {
 	}
 
 	if msg.UserID == "" {
-		// Global broadcast
 		s.broadcaster.BroadcastToAll(bridge.BroadcastEvent{EventType: msg.EventType, Data: eventData})
 		s.log.Info("notification_broadcast_all", "event_type", msg.EventType)
-
-		// Also broadcast to SSE clients (frontend) - pass empty userID for global
 		s.broadcastToSSE("", msg.EventType, eventData)
+		s.forwardToAPIServer("", msg.EventType, eventData)
 		return
 	}
 
-	// Broadcast to a specific user
 	s.broadcaster.BroadcastUnifiedEvent(msg.UserID, unifiedEvent)
 	s.log.Info("notification_forwarded_and_broadcast", "user_id", msg.UserID, "event_type", msg.EventType)
-
-	// Also broadcast to SSE clients (user-specific)
 	s.broadcastToSSE(msg.UserID, msg.EventType, eventData)
+	s.forwardToAPIServer(msg.UserID, msg.EventType, eventData)
+}
+
+func (s *Server) forwardToAPIServer(userID, eventType string, data map[string]interface{}) {
+	var message string
+	switch eventType {
+	case "manga_created":
+		if title, ok := data["title"].(string); ok {
+			message = "New manga added: " + title
+		} else {
+			message = "New manga added"
+		}
+	case "chapter_release":
+		if title, ok := data["title"].(string); ok {
+			if delta, ok := data["delta"].(float64); ok {
+				message = fmt.Sprintf("%.0f new chapter(s) for %s", delta, title)
+			} else {
+				message = "New chapters for " + title
+			}
+		} else {
+			message = "New chapters available"
+		}
+	case "library_update":
+		mangaID := ""
+		if id, ok := data["manga_id"].(float64); ok {
+			mangaID = fmt.Sprintf("%.0f", id)
+		} else if id, ok := data["manga_id"].(string); ok {
+			mangaID = id
+		}
+
+		if action, ok := data["action"].(string); ok {
+			switch action {
+			case "add":
+				if mangaID != "" {
+					message = fmt.Sprintf("Added manga #%s to library", mangaID)
+				} else {
+					message = "Added to your library"
+				}
+			case "remove":
+				if mangaID != "" {
+					message = fmt.Sprintf("Removed manga #%s from library", mangaID)
+				} else {
+					message = "Removed from your library"
+				}
+			case "update":
+				message = "Library updated"
+			default:
+				message = "Library changed"
+			}
+		} else {
+			message = "Library updated"
+		}
+	case "progress_update":
+		if chapterNum, ok := data["chapter_number"].(float64); ok {
+			message = fmt.Sprintf("Progress updated: Chapter %.0f", chapterNum)
+		} else {
+			message = "Reading progress updated"
+		}
+	default:
+		message = "Notification"
+	}
+
+	payload := map[string]interface{}{
+		"user_id":    userID,
+		"event_type": eventType,
+		"message":    message,
+		"data":       data,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		s.log.Warn("failed_to_marshal_notification", "error", err.Error())
+		return
+	}
+
+	go func() {
+		resp, err := s.httpClient.Post(
+			s.apiServerURL+"/internal/notify",
+			"application/json",
+			bytes.NewBuffer(jsonData),
+		)
+		if err != nil {
+			s.log.Warn("failed_to_forward_to_api", "error", err.Error())
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			s.log.Info("notification_forwarded_to_api", "event_type", eventType)
+		} else {
+			s.log.Warn("api_forward_failed", "status", resp.StatusCode)
+		}
+	}()
 }
 
 // broadcastToSSE sends notification to frontend SSE clients

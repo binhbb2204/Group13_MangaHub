@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/websocket"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/config"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
@@ -53,9 +54,13 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
+	servicesConfig := config.LoadServicesConfig()
 	r.GET("/ws/chat", wsServer.HandleWebSocket)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "local_ip": localIP})
+	})
+	r.GET("/discovery", func(c *gin.Context) {
+		c.JSON(200, servicesConfig.GetDiscoveryResponse())
 	})
 
 	// Log connection info for discovery

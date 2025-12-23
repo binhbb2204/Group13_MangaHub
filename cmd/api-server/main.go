@@ -10,7 +10,9 @@ import (
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/health"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/user"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/config"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
+	"github.com/binhbb2204/Manga-Hub-Group13/pkg/discovery"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/metrics"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/utils"
@@ -66,8 +68,19 @@ func main() {
 	defer apiBridge.Stop()
 	log.Info("tcp_http_bridge_started")
 
+	servicesConfig := config.LoadServicesConfig()
+	broadcaster := discovery.NewBroadcaster(localIP, map[string]string{
+		"api":       servicesConfig.API.URL(),
+		"websocket": servicesConfig.WebSocket.URL(),
+		"grpc":      servicesConfig.GRPC.URL(),
+		"tcp":       servicesConfig.TCP.URL(),
+		"udp":       servicesConfig.UDP.URL(),
+	})
+	broadcaster.Start()
+	defer broadcaster.Stop()
+	log.Info("discovery_broadcaster_started")
+
 	authHandler := auth.NewHandler(jwtSecret)
-	// Inject authHandler into Gin context for middleware
 	gin.SetMode(gin.ReleaseMode)
 	mangaHandler := manga.NewHandler()
 	userHandler := user.NewHandler(apiBridge)
@@ -115,12 +128,35 @@ func main() {
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "local_ip": os.Getenv("LOCAL_IP")})
 	})
+	router.GET("/discovery", healthHandler.Discovery)
+	router.GET("/announce", func(c *gin.Context) {
+		c.JSON(200, broadcaster.GetAnnouncement())
+	})
 	router.GET("/healthz", healthHandler.Healthz)
 	router.GET("/readyz", healthHandler.Readyz)
 	router.GET("/metrics", metricsHandler.Metrics)
 
 	// SSE notifications endpoint
 	router.GET("/events", mangaHandler.GetBroker().ServeSSE)
+
+	router.POST("/internal/notify", func(c *gin.Context) {
+		var payload struct {
+			UserID    string                 `json:"user_id"`
+			EventType string                 `json:"event_type"`
+			Message   string                 `json:"message"`
+			Data      map[string]interface{} `json:"data"`
+		}
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(400, gin.H{"error": "Invalid payload"})
+			return
+		}
+		if payload.UserID != "" {
+			mangaHandler.GetBroker().BroadcastToUser(payload.UserID, payload.EventType, payload.Message, payload.Data)
+		} else {
+			mangaHandler.GetBroker().Broadcast(payload.EventType, payload.Message, payload.Data)
+		}
+		c.JSON(200, gin.H{"status": "ok"})
+	})
 
 	authGroup := router.Group("/auth")
 	{
