@@ -90,13 +90,18 @@ func runChatJoin(cmd *cobra.Command, args []string) {
 		chatRoomDisplayName = chatRoom
 	}
 
-	// Get server endpoint (auto-detected from health endpoint)
-	wsPort := getEnvOrDefault("WEBSOCKET_PORT", "9093")
-	wsHost := "localhost"
+	// Get server endpoint from config or environment
+	wsPort := getEnvOrDefault("WEBSOCKET_PORT", fmt.Sprintf("%d", cfg.Server.WebSocketPort))
+	wsHost := getEnvOrDefault("WEBSOCKET_HOST", cfg.Server.Host)
 
-	// Try to auto-detect from server health endpoint
-	if detectedIP := detectServerIP(wsPort); detectedIP != "" {
-		wsHost = detectedIP
+	// Fallback to localhost if config doesn't specify
+	if wsHost == "" {
+		wsHost = "localhost"
+
+		// Try to auto-detect from server health endpoint
+		if detectedIP := detectServerIP(wsPort); detectedIP != "" {
+			wsHost = detectedIP
+		}
 	}
 
 	fmt.Printf("Connecting to WebSocket chat server at ws://%s:%s...\n", wsHost, wsPort)
@@ -215,10 +220,13 @@ func runChatSend(cmd *cobra.Command, args []string) {
 		chatRoom = "manga-" + chatMangaID
 	}
 
-	wsPort := getEnvOrDefault("WEBSOCKET_PORT", "9093")
-	wsHost := "localhost"
-	if detectedIP := detectServerIP(wsPort); detectedIP != "" {
-		wsHost = detectedIP
+	wsPort := getEnvOrDefault("WEBSOCKET_PORT", fmt.Sprintf("%d", cfg.Server.WebSocketPort))
+	wsHost := getEnvOrDefault("WEBSOCKET_HOST", cfg.Server.Host)
+	if wsHost == "" {
+		wsHost = "localhost"
+		if detectedIP := detectServerIP(wsPort); detectedIP != "" {
+			wsHost = detectedIP
+		}
 	}
 	wsURL := fmt.Sprintf("ws://%s:%s/ws/chat?token=%s",
 		wsHost,
@@ -271,10 +279,13 @@ func runChatHistory(cmd *cobra.Command, args []string) {
 		room = "manga-" + chatMangaID
 	}
 
-	wsPort := getEnvOrDefault("WEBSOCKET_PORT", "9093")
-	wsHost := "localhost"
-	if detectedIP := detectServerIP(wsPort); detectedIP != "" {
-		wsHost = detectedIP
+	wsPort := getEnvOrDefault("WEBSOCKET_PORT", fmt.Sprintf("%d", cfg.Server.WebSocketPort))
+	wsHost := getEnvOrDefault("WEBSOCKET_HOST", cfg.Server.Host)
+	if wsHost == "" {
+		wsHost = "localhost"
+		if detectedIP := detectServerIP(wsPort); detectedIP != "" {
+			wsHost = detectedIP
+		}
 	}
 	wsURL := fmt.Sprintf("ws://%s:%s/ws/chat?token=%s",
 		wsHost,
@@ -663,12 +674,22 @@ func detectServerIP(port string) string {
 
 // fetchMangaName fetches the manga title by ID to use as room name
 func fetchMangaName(mangaID string) (string, error) {
-	// Get API server endpoint
-	apiHost := "localhost"
-	apiPort := getEnvOrDefault("API_PORT", "8080")
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
 
-	if detectedIP := detectServerIP(apiPort); detectedIP != "" {
-		apiHost = detectedIP
+	// Get API server endpoint from config or environment
+	apiHost := getEnvOrDefault("API_HOST", cfg.Server.Host)
+	apiPort := getEnvOrDefault("API_PORT", fmt.Sprintf("%d", cfg.Server.HTTPPort))
+
+	// Fallback to localhost if config doesn't specify
+	if apiHost == "" {
+		apiHost = "localhost"
+
+		if detectedIP := detectServerIP(apiPort); detectedIP != "" {
+			apiHost = detectedIP
+		}
 	}
 
 	apiURL := fmt.Sprintf("http://%s:%s/manga/info/%s", apiHost, apiPort, mangaID)
