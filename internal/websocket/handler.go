@@ -304,6 +304,83 @@ func (h *Handler) handleCommand(client *Client, msg ClientMessage) error {
 				"count": len(users),
 			},
 		}
+	case "join":
+		// Join a room: /join <room-name>
+		if len(args) == 0 {
+			responseMsg = ServerMessage{
+				ID:        id,
+				Type:      MessageTypeError,
+				From:      "system",
+				Room:      msg.Room,
+				Content:   "Usage: /join <room-name>",
+				Timestamp: time.Now(),
+			}
+		} else {
+			roomName := strings.Join(args, " ")
+			// Get or create conversation for the room
+			convID, err := h.getOrCreateConversation(roomName, client.ID)
+			if err != nil {
+				responseMsg = ServerMessage{
+					ID:        id,
+					Type:      MessageTypeError,
+					From:      "system",
+					Room:      msg.Room,
+					Content:   fmt.Sprintf("Failed to join room: %v", err),
+					Timestamp: time.Now(),
+				}
+			} else {
+				// Join user to conversation in database
+				h.joinConversation(client.ID, convID)
+				// Add client to room in WebSocket manager
+				client.Manager.joinRoom(client, roomName)
+
+				// Send confirmation to client
+				responseMsg = ServerMessage{
+					ID:        id,
+					Type:      MessageTypePresence,
+					From:      "system",
+					Room:      roomName,
+					Content:   fmt.Sprintf("%s joined the chat", client.Username),
+					Timestamp: time.Now(),
+				}
+
+				// Broadcast to room that user joined
+				data, _ := json.Marshal(responseMsg)
+				client.Manager.broadcastRoom(roomName, data)
+
+				// Also send history to the joining client
+				messages, _ := h.GetConversationHistory(convID, 50)
+				historyMsg := ServerMessage{
+					ID:        id,
+					Type:      MessageTypeHistory,
+					From:      "system",
+					Room:      roomName,
+					Timestamp: time.Now(),
+					Metadata: map[string]interface{}{
+						"messages": messages,
+					},
+				}
+				historyData, _ := json.Marshal(historyMsg)
+				client.Manager.SendToUser(client.ID, historyData)
+
+				// Send userlist to the joining client
+				users := h.manager.GetRoomUsers(roomName)
+				userListMsg := ServerMessage{
+					ID:        id,
+					Type:      MessageTypeUserList,
+					From:      "system",
+					Room:      roomName,
+					Timestamp: time.Now(),
+					Metadata: map[string]interface{}{
+						"users": users,
+						"count": len(users),
+					},
+				}
+				userListData, _ := json.Marshal(userListMsg)
+				client.Manager.SendToUser(client.ID, userListData)
+				return nil
+			}
+		}
 	case "history":
 		// Default history limit; override if a valid argument is provided
 		limit := 20

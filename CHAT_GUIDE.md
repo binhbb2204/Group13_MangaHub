@@ -51,7 +51,8 @@ mangahub chat join
 mangahub chat join
 
 # Join manga-specific discussion
-mangahub chat join --manga-id one-piece
+mangahub chat join --manga-id one-piece (13 = One Piece)
+alterative command: mangahub chat join --manga-id 13
 
 # Join custom room
 mangahub chat join -r "team-room"
