@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/user"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
@@ -78,7 +79,11 @@ func TestIntegration_LibraryAddBroadcast(t *testing.T) {
 	br.RegisterTCPClient(userBConn, "userB")
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	userHandler := user.NewHandler(br)
+
+	// Create mock external source for testing
+	mockSource := manga.NewMockExternalSource()
+	userHandler := user.NewHandlerWithSource(br, mockSource)
+
 	router.POST("/library", func(c *gin.Context) {
 		c.Set("user_id", "userA")
 		userHandler.AddToLibrary(c)

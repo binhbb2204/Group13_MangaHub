@@ -35,6 +35,14 @@ func NewHandler(br *bridge.Bridge) *Handler {
 	}
 }
 
+// NewHandlerWithSource creates a new user handler with custom external source (for testing)
+func NewHandlerWithSource(br *bridge.Bridge, source manga.ExternalSource) *Handler {
+	return &Handler{
+		bridge:         br,
+		externalSource: source,
+	}
+}
+
 // resolveTCPAddr determines the TCP server address using env overrides or auto-detected local IP.
 // Order of precedence:
 // 1) TCP_HOST env var (explicit override)

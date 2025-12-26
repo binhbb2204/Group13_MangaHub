@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/bridge"
+	"github.com/binhbb2204/Manga-Hub-Group13/internal/manga"
 	"github.com/binhbb2204/Manga-Hub-Group13/internal/user"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/database"
 	"github.com/binhbb2204/Manga-Hub-Group13/pkg/logger"
@@ -144,7 +145,10 @@ func TestRealTimeSync_HTTPToTCP_LibraryUpdate(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	userHandler := user.NewHandler(br)
+
+	// Create mock external source for testing
+	mockSource := manga.NewMockExternalSource()
+	userHandler := user.NewHandlerWithSource(br, mockSource)
 
 	router.POST("/library", func(c *gin.Context) {
 		c.Set("user_id", "user1")
