@@ -15,12 +15,12 @@ type Service struct {
 }
 
 type ServicesConfig struct {
-	LocalIP    string
-	API        Service
-	WebSocket  Service
-	TCP        Service
-	UDP        Service
-	GRPC       Service
+	LocalIP   string
+	API       Service
+	WebSocket Service
+	TCP       Service
+	UDP       Service
+	GRPC      Service
 }
 
 func LoadServicesConfig() *ServicesConfig {
